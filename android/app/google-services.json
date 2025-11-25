@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "594911842190",
+    "project_id": "curemate-3ce31",
+    "storage_bucket": "curemate-3ce31.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:594911842190:android:32c82f322f0f4796cf5edf",
+        "android_client_info": {
+          "package_name": "com.fourberry.curemate"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCORK7DznsYEoAWnJ6jwmJuaGG3EX_5cZc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
