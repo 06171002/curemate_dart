@@ -1,23 +1,21 @@
-// lib/features/calendar/view/new_schedule_screen.dart
+import 'package:flutter/cupertino.dart'; // iOS 스타일 피커 사용을 위해 필수
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:curemate/features/widgets/common/header_provider.dart';
 import 'package:curemate/features/widgets/common/widgets.dart';
 import 'package:curemate/services/calendar_service.dart';
+import 'package:curemate/features/patient/viewmodel/patient_viewmodel.dart';
 import '../../../app/theme/app_colors.dart';
 
 class NewScheduleScreen extends StatefulWidget {
-
-  final DateTime selectedDateFromPreviousScreen; // 선택된 날짜를 받을 파라미터
-  final int patientId;
-  final Map<String, dynamic>? existingSchedule;  // ★ 수정 모드를 위한 데이터 (Nullable)
+  final DateTime selectedDateFromPreviousScreen;
+  final Map<String, dynamic>? existingSchedule;
 
   const NewScheduleScreen({
     super.key,
-    required this.selectedDateFromPreviousScreen, // 생성자에서 날짜를 받도록 함
-    required this.patientId,
-    this.existingSchedule, // ★ 생성자에 추가
+    required this.selectedDateFromPreviousScreen,
+    this.existingSchedule,
   });
 
   @override
@@ -25,48 +23,46 @@ class NewScheduleScreen extends StatefulWidget {
 }
 
 class _NewScheduleScreenState extends State<NewScheduleScreen> {
-  String? _selectedScheduleType; // 선택된 일정 종류를 저장할 변수
-  final List<String> _scheduleTypes = ['진료', '검사', '상담', '기타']; // 선택 옵션 리스트
+  // --- 상태 변수 ---
+  int? _selectedPatientId;
+  String _selectedScheduleType = '진료';
+  final List<String> _scheduleTypes = ['진료', '검사', '상담', '재활', '기타'];
 
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _contentController = TextEditingController();
-  DateTime? _selectedDate;
-  TimeOfDay? _selectedTime;
+
+  // 날짜와 시간을 하나로 관리 (CupertinoDatePicker용)
+  late DateTime _selectedDateTime;
+
+  // UI 확장/축소 상태 관리 변수
+  bool _isDateExpanded = false;   // 날짜/시간 피커 확장 여부
+  bool _isRepeatExpanded = false; // 반복 옵션 확장 여부
+
+  // 옵션들
+  bool _isPublic = true;
+  String _repeatOption = '반복 없음';
+  final List<String> _repeatOptions = ['반복 없음', '매일', '매주', '매월'];
+
+  // 알람 관련
+  bool _isAlarmOn = false;
+  String _alarmType = '푸시';
+  final List<String> _alarmTypes = ['푸시', 'SMS', '이메일'];
+  String _alarmTime = '10분 전';
+  final List<String> _alarmTimeOptions = ['정각', '5분 전', '10분 전', '30분 전', '1시간 전', '하루 전'];
 
   bool _isLoading = false;
-
   final CalendarService _calendarService = CalendarService();
 
-  // ★ 수정 모드인지 확인하는 변수
   bool get _isEditing => widget.existingSchedule != null;
 
   @override
   void initState() {
     super.initState();
 
-    if (_isEditing) {
-      // --- 수정 모드일 때 데이터 채우기 ---
-      final schedule = widget.existingSchedule!;
-      _titleController.text = schedule['title'] ?? '';
-      _contentController.text = schedule['content'] ?? '';
-      _selectedScheduleType = schedule['schedule_type'];
-
-      // 날짜와 시간 파싱
-      _selectedDate = DateTime.parse(schedule['schedule_date']);
-      final timeParts = (schedule['schedule_time'] as String).split(':');
-      _selectedTime = TimeOfDay(
-        hour: int.parse(timeParts[0]),
-        minute: int.parse(timeParts[1]),
-      );
-    } else {
-      _selectedDate = widget.selectedDateFromPreviousScreen;
-      _selectedTime = TimeOfDay.now();
-    }
-
-    print('NewScheduleScreen에 전달된 patientId: ${widget.patientId}');
-
+    // 환자 목록 불러오기 및 헤더 설정
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<PatientViewModel>().fetchPatients();
       if (mounted) {
         final header = Provider.of<HeaderProvider>(context, listen: false);
         header.setTitle(_isEditing ? '일정 수정' : '새 일정 추가');
@@ -74,6 +70,52 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
         header.setSettingButton(false);
       }
     });
+
+    // 초기 데이터 설정
+    if (_isEditing) {
+      _initEditData();
+    } else {
+      // 새 일정: 이전 화면에서 선택한 날짜 + 현재 시간 조합
+      final now = DateTime.now();
+      _selectedDateTime = DateTime(
+        widget.selectedDateFromPreviousScreen.year,
+        widget.selectedDateFromPreviousScreen.month,
+        widget.selectedDateFromPreviousScreen.day,
+        now.hour,
+        now.minute,
+      );
+    }
+  }
+
+  void _initEditData() {
+    final schedule = widget.existingSchedule!;
+    _titleController.text = schedule['title'] ?? '';
+    _contentController.text = schedule['content'] ?? '';
+    _selectedScheduleType = schedule['schedule_type'] ?? '진료';
+
+    // DB 데이터(문자열)를 DateTime으로 파싱
+    try {
+      final datePart = DateTime.parse(schedule['schedule_date']);
+      final timeParts = (schedule['schedule_time'] as String).split(':');
+      _selectedDateTime = DateTime(
+        datePart.year,
+        datePart.month,
+        datePart.day,
+        int.parse(timeParts[0]),
+        int.parse(timeParts[1]),
+      );
+    } catch (e) {
+      _selectedDateTime = DateTime.now(); // 파싱 실패 시 현재 시간
+    }
+
+    if (schedule.containsKey('patient_id')) {
+      _selectedPatientId = schedule['patient_id'];
+    }
+
+    // 서버에 저장된 추가 필드가 있다면 여기서 바인딩 (예시)
+    // _isPublic = schedule['isPublic'] ?? true;
+    // _repeatOption = schedule['repeatOption'] ?? '반복 없음';
+    // _isAlarmOn = schedule['isAlarmOn'] ?? false;
   }
 
   @override
@@ -83,345 +125,375 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
     super.dispose();
   }
 
-  Future<void> _pickDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
+  // --- 하단 모달 (알람 종류/시간 선택용) ---
+  void _showSelectionModal(String title, List<String> options, String currentVal, Function(String) onSelected) {
+    showModalBottomSheet(
       context: context,
-      initialDate: _selectedDate ?? DateTime.now(),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2101),
-    );
-    if (picked != null && picked != _selectedDate) {
-      setState(() {
-        _selectedDate = picked;
-      });
-    }
-  }
-
-  Future<void> _pickTime(BuildContext context) async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: _selectedTime ?? TimeOfDay.now(),
-    );
-    if (picked != null && picked != _selectedTime) {
-      setState(() {
-        _selectedTime = picked;
-      });
-    }
-  }
-
-  void _saveSchedule() async{
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
-    // 이미 로딩 중이면 중복 실행 방지
-    if (_isLoading) {
-      return;
-    }
-
-    setState(() {
-      _isLoading = true; // 로딩 시작
-    });
-
-    try {
-      // API로 보낼 데이터 준비
-      String title = _titleController.text;
-      String content = _contentController.text;
-      String scheduleType = _selectedScheduleType!;
-      String date = DateFormat('yyyy-MM-dd').format(_selectedDate!);
-      String time = '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}';
-
-      if(_isEditing) {
-        final int scheduleSeq = widget.existingSchedule!['schedule_seq'];
-
-        // 2. 서비스 함수에 ID와 body 데이터를 분리하여 전달합니다.
-        final response = await _calendarService.updateSchedule(
-          scheduleSeq, // URL 파라미터로 전달될 ID
-          {
-            // req.body로 전달될 데이터 맵
-            'title': title,
-            'content': content,
-            'scheduleType': scheduleType,
-            'scheduleDate': date,
-            'scheduleTime': time,
-          },
-        );
-
-      } else {
-        // --- 여기서 API 호출 ---
-        final response = await _calendarService.createSchedule({
-          'patientId': widget.patientId,
-          'title': title,
-          'content': content,
-          'scheduleType': scheduleType,
-          'scheduleDate': date, // 날짜 전달
-          'scheduleTime': time, // 시간 전달
-        });
-
-        print('일정 저장 성공 (API 호출 완료):');
-        print('환자 ID: ${widget.patientId}');
-        print('제목: $title');
-        print('종류: $scheduleType');
-        print('설명: $content');
-        print('날짜: $date');
-        print('시간: $time');
-      }
-
-      // UI가 마운트된 상태인지 확인 후 스낵바 표시 및 화면 전환
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('일정이 성공적으로 ${ _isEditing ? '수정' : '저장' }되었습니다.')),
-        );
-        // 저장 성공 후 이전 화면으로 돌아가기
-        Navigator.pop(context, true);
-      }
-
-    } catch (e) {
-      // API 호출 실패 시 에러 처리
-      print('일정 저장 실패: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('일정 저장에 실패했습니다: $e')),
-        );
-      }
-    } finally {
-      // API 호출 성공/실패 여부와 관계 없이 로딩 상태 해제
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _showDeleteConfirmDialog() async {
-    // 사용자가 정말로 삭제할 것인지 확인하는 대화 상자를 표시합니다.
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: false, // 대화 상자 바깥을 탭해도 닫히지 않음
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('일정 삭제'),
-          content: const SingleChildScrollView(
-            child: ListBody(
-              children: <Widget>[
-                Text('정말로 이 일정을 삭제하시겠습니까?'),
-                Text('삭제된 데이터는 복구할 수 없습니다.'),
-              ],
-            ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              ),
+              ...options.map((option) => ListTile(
+                title: Text(option),
+                trailing: option == currentVal ? const Icon(Icons.check, color: AppColors.mainBtn) : null,
+                onTap: () {
+                  onSelected(option);
+                  Navigator.pop(context);
+                },
+              )),
+            ],
           ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('취소'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-            TextButton(
-              style: TextButton.styleFrom(
-                  foregroundColor: Colors.red), // 삭제 버튼 텍스트 색상
-              child: const Text('삭제'),
-              onPressed: () {
-                Navigator.of(context).pop(); // 대화 상자 닫기
-                _deleteSchedule(); // 삭제 함수 호출
-              },
-            ),
-          ],
         );
       },
     );
   }
 
-  void _deleteSchedule() async {
-    // 수정 모드가 아니거나, 기존 스케줄 데이터가 없으면 실행하지 않음
-    if (!_isEditing || widget.existingSchedule == null) return;
+  // --- 저장 로직 ---
+  void _saveSchedule() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_selectedPatientId == null && !_isEditing) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('환자를 선택해주세요.')));
+      return;
+    }
+    if (_isLoading) return;
 
-    setState(() {
-      _isLoading = true; // 로딩 시작
-    });
+    setState(() => _isLoading = true);
 
     try {
-      // 삭제할 스케줄의 고유 ID 가져오기
-      final int scheduleSeq = widget.existingSchedule!['schedule_seq'];
-      // 서비스의 deleteSchedule 함수 호출
-      await _calendarService.deleteSchedule(scheduleSeq);
+      String title = _titleController.text;
+      String content = _contentController.text;
+
+      // DateTime에서 날짜(yyyy-MM-dd)와 시간(HH:mm) 포맷팅
+      String date = DateFormat('yyyy-MM-dd').format(_selectedDateTime);
+      String time = DateFormat('HH:mm').format(_selectedDateTime);
+
+      final Map<String, dynamic> scheduleData = {
+        'title': title,
+        'content': content,
+        'scheduleType': _selectedScheduleType,
+        'scheduleDate': date,
+        'scheduleTime': time,
+        'isPublic': _isPublic,
+        'repeatOption': _repeatOption,
+        'isAlarmOn': _isAlarmOn,
+        'alarmType': _isAlarmOn ? _alarmType : null,
+        'alarmTime': _isAlarmOn ? _alarmTime : null,
+      };
+
+      if (!_isEditing) {
+        scheduleData['patientId'] = _selectedPatientId;
+        await _calendarService.createSchedule(scheduleData);
+      } else {
+        final int scheduleSeq = widget.existingSchedule!['schedule_seq'];
+        await _calendarService.updateSchedule(scheduleSeq, scheduleData);
+      }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('일정이 성공적으로 삭제되었습니다.')),
-        );
-        // 삭제 성공 후 이전 화면으로 돌아가기 (true를 전달하여 이전 화면 갱신 유도)
         Navigator.pop(context, true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('일정이 ${_isEditing ? '수정' : '저장'}되었습니다.')),
+        );
       }
     } catch (e) {
-      print('일정 삭제 실패: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('일정 삭제에 실패했습니다: $e')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('저장 실패: $e')));
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false; // 로딩 종료
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  Future<void> _showDeleteConfirmDialog() async {
+    // 삭제 확인 다이얼로그 (필요 시 구현)
+    // _deleteSchedule 호출
+  }
+
+  void _deleteSchedule() async {
+    // 삭제 로직 (필요 시 구현)
+  }
 
   @override
   Widget build(BuildContext context) {
+    final patientViewModel = context.watch<PatientViewModel>();
 
-    return Container(
-      color: AppColors.white,
-      child: SafeArea(
-        top: true, // top에 SafeArea 적용
-        child: Scaffold(
-          resizeToAvoidBottomInset: false,
-          body: Column(
-            children: [
-              // --- Header ---
-              PatientScreenHeader(), // Column의 첫 번째 자식으로 헤더 배치
-              // --- 나머지 내용 (스크롤 가능 영역) ---
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.only(left: 16.0, right:16.0, top: 8.0), // 상단과 좌우 여백
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.white,
-                      borderRadius: BorderRadius.circular(16.0),
-                    ),
-                    child: Form(
-                      key: _formKey,
-                      child: ListView(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0), // ListView 자체에 패딩 적용 (상단 패딩 조절)
-                        children: <Widget>[
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  _selectedDate == null
-                                      ? '날짜 선택'
-                                      : '날짜: ${DateFormat('yyyy년 MM월 dd일').format(_selectedDate!)}',
-                                  style: const TextStyle(fontSize: 16),
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: () => _pickDate(context),
-                                child: const Text('날짜 변경'),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  _selectedTime == null
-                                      ? '시간 선택'
-                                      : '시간: ${_selectedTime!.format(context)}',
-                                  style: const TextStyle(fontSize: 16),
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: () => _pickTime(context),
-                                child: const Text('시간 변경'),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20), // 위젯 간 간격 조정
-                          DropdownButtonFormField<String>(
-                            decoration: const InputDecoration(
-                              labelText: '일정 종류',
-                              border: OutlineInputBorder(),
-                            ),
-                            value: _selectedScheduleType, // 현재 선택된 값
-                            hint: const Text('일정 종류를 선택하세요'), // 아무것도 선택되지 않았을 때 표시될 텍스트
-                            isExpanded: true, // 드롭다운 버튼을 가로로 확장
-                            items: _scheduleTypes.map((String value) {
-                              return DropdownMenuItem<String>(
-                                value: value,
-                                child: Text(value),
-                              );
+    return Scaffold(
+      backgroundColor: AppColors.white,
+      body: SafeArea(
+        child: Column(
+          children: [
+            PatientScreenHeader(), // 커스텀 헤더
+            Expanded(
+              child: Form(
+                key: _formKey,
+                child: ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  children: [
+                    // 1. 환자 선택 (신규 등록 시에만 표시)
+                    if (!_isEditing) ...[
+                      _buildSectionLabel('환자 선택'),
+                      Container(
+                        decoration: _boxDecoration(),
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButtonFormField<int>(
+                            decoration: const InputDecoration(border: InputBorder.none, prefixIcon: Icon(Icons.person, color: Colors.grey)),
+                            value: _selectedPatientId,
+                            hint: const Text('일정을 등록할 환자를 선택하세요'),
+                            items: patientViewModel.patients.map((patient) {
+                              final int pId = patient['patient_id'] ?? patient['id'];
+                              final String pName = patient['name'] ?? '이름 없음';
+                              return DropdownMenuItem<int>(value: pId, child: Text(pName));
                             }).toList(),
-                            onChanged: (String? newValue) {
+                            onChanged: (value) => setState(() => _selectedPatientId = value),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+
+                    // 2. 일정 유형
+                    _buildSectionLabel('일정 유형'),
+                    Container(
+                      width: double.infinity,
+                      decoration: _boxDecoration(),
+                      padding: const EdgeInsets.all(16),
+                      child: Wrap(
+                        spacing: 8, runSpacing: 8,
+                        children: _scheduleTypes.map((type) {
+                          final isSelected = _selectedScheduleType == type;
+                          return ChoiceChip(
+                            label: Text(type, style: TextStyle(color: isSelected ? Colors.white : Colors.black87, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                            selected: isSelected,
+                            selectedColor: AppColors.mainBtn,
+                            backgroundColor: Colors.grey[200],
+                            onSelected: (bool selected) { if (selected) setState(() => _selectedScheduleType = type); },
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // 3. 일정 상세 (제목/내용)
+                    _buildSectionLabel('일정 상세'),
+                    Container(
+                      decoration: _boxDecoration(),
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                            child: TextFormField(
+                              controller: _titleController,
+                              decoration: const InputDecoration(hintText: '제목을 입력하세요', border: InputBorder.none, labelText: '제목', floatingLabelBehavior: FloatingLabelBehavior.always),
+                              validator: (v) => v!.isEmpty ? '제목을 입력해주세요' : null,
+                            ),
+                          ),
+                          _buildDivider(),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                            child: TextFormField(
+                              controller: _contentController,
+                              decoration: const InputDecoration(hintText: '메모를 입력하세요 (선택 사항)', border: InputBorder.none, labelText: '내용', floatingLabelBehavior: FloatingLabelBehavior.always),
+                              maxLines: 3, minLines: 1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // 4. 상세 설정 (공개/날짜/반복/알람)
+                    _buildSectionLabel('상세 설정'),
+                    Container(
+                      decoration: _boxDecoration(),
+                      child: Column(
+                        children: [
+                          // 공개 여부
+                          SwitchListTile(
+                            title: const Text('공개 여부'),
+                            value: _isPublic,
+                            activeColor: AppColors.mainBtn,
+                            onChanged: (val) => setState(() => _isPublic = val),
+                            secondary: const Icon(Icons.visibility, color: Colors.grey),
+                          ),
+                          _buildDivider(),
+
+                          // --- 날짜 및 시간 (인라인 피커) ---
+                          ListTile(
+                            leading: const Icon(Icons.calendar_today, color: Colors.grey),
+                            title: const Text('날짜 및 시간'),
+                            trailing: Text(
+                              DateFormat('yyyy.MM.dd (E) HH:mm', 'ko_KR').format(_selectedDateTime),
+                              style: const TextStyle(color: AppColors.mainBtn, fontWeight: FontWeight.bold),
+                            ),
+                            onTap: () {
                               setState(() {
-                                _selectedScheduleType = newValue;
+                                _isDateExpanded = !_isDateExpanded;
+                                if (_isDateExpanded) _isRepeatExpanded = false; // 다른 피커 닫기
                               });
                             },
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return '일정 종류를 선택해주세요.';
-                              }
-                              return null;
+                          ),
+                          if (_isDateExpanded)
+                            SizedBox(
+                              height: 200,
+                              child: CupertinoDatePicker(
+                                mode: CupertinoDatePickerMode.dateAndTime,
+                                initialDateTime: _selectedDateTime,
+                                onDateTimeChanged: (DateTime newDateTime) {
+                                  setState(() => _selectedDateTime = newDateTime);
+                                },
+                                use24hFormat: true,
+                              ),
+                            ),
+
+                          _buildDivider(),
+
+                          // --- 반복 주기 (인라인 리스트) ---
+                          ListTile(
+                            leading: const Icon(Icons.repeat, color: Colors.grey),
+                            title: const Text('반복 주기'),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(_repeatOption, style: const TextStyle(color: Colors.grey)),
+                                const SizedBox(width: 4),
+                                Icon(_isRepeatExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.grey),
+                              ],
+                            ),
+                            onTap: () {
+                              setState(() {
+                                _isRepeatExpanded = !_isRepeatExpanded;
+                                if (_isRepeatExpanded) _isDateExpanded = false;
+                              });
                             },
                           ),
-                          const SizedBox(height: 20),
-                          TextFormField(
-                            controller: _titleController,
-                            decoration: const InputDecoration(
-                              labelText: '제목',
-                              border: OutlineInputBorder(),
-                              hintText: '일정 제목을 입력하세요',
-                            ),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return '제목을 입력해주세요.';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 20),
-                          TextFormField(
-                            controller: _contentController,
-                            decoration: const InputDecoration(
-                              labelText: '내용 (선택 사항)',
-                              border: OutlineInputBorder(),
-                              hintText: '일정에 대한 설명을 입력하세요',
-                              alignLabelWithHint: true,
-                            ),
-                            maxLines: 5,
-                            keyboardType: TextInputType.multiline,
-                          ),
-                          const SizedBox(height: 30),
-                          ElevatedButton(
-                            onPressed: _saveSchedule,
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16.0),
-                            ),
-                            child: _isLoading
-                                ? const CircularProgressIndicator()
-                                : Text(
-                              _isEditing ? '수정하기' : '저장하기', // 모드에 따라 버튼 텍스트 변경
-                              style: const TextStyle(fontSize: 16),
-                            ),
-                          ),
-                          if (_isEditing) ...[
-                            const SizedBox(height: 10), // 버튼 사이의 간격
-                            ElevatedButton(
-                              onPressed: _isLoading ? null : _showDeleteConfirmDialog, // 로딩 중 비활성화
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 16.0),
-                                backgroundColor: AppColors.activeBtn, // 삭제 버튼은 위험을 나타내는 붉은색으로 지정
-                                foregroundColor: AppColors.error,
+                          if (_isRepeatExpanded)
+                            Container(
+                              color: Colors.grey[50], // 하위 메뉴 배경색 구분
+                              child: Column(
+                                children: _repeatOptions.map((option) {
+                                  return RadioListTile<String>(
+                                    title: Text(option, style: const TextStyle(fontSize: 14)),
+                                    value: option,
+                                    groupValue: _repeatOption,
+                                    activeColor: AppColors.mainBtn,
+                                    dense: true,
+                                    onChanged: (val) {
+                                      setState(() {
+                                        _repeatOption = val!;
+                                        // _isRepeatExpanded = false; // 선택 후 닫으려면 주석 해제
+                                      });
+                                    },
+                                  );
+                                }).toList(),
                               ),
-                              child: const Text(
-                                '삭제하기',
-                                style: TextStyle(fontSize: 16),
+                            ),
+
+                          _buildDivider(),
+
+                          // --- 알람 설정 (토글) ---
+                          SwitchListTile(
+                            title: const Text('알람 설정'),
+                            value: _isAlarmOn,
+                            activeColor: AppColors.mainBtn,
+                            onChanged: (val) => setState(() => _isAlarmOn = val),
+                            secondary: const Icon(Icons.notifications_none, color: Colors.grey),
+                          ),
+
+                          // 알람 켜졌을 때만 보이는 하위 옵션
+                          if (_isAlarmOn) ...[
+                            _buildDivider(),
+                            // 알람 종류
+                            ListTile(
+                              contentPadding: const EdgeInsets.only(left: 56, right: 16),
+                              title: const Text('알람 종류', style: TextStyle(fontSize: 14)),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(_alarmType, style: const TextStyle(color: AppColors.mainBtn, fontSize: 14)),
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+                                ],
                               ),
+                              onTap: () => _showSelectionModal('알람 종류 선택', _alarmTypes, _alarmType, (val) => setState(() => _alarmType = val)),
+                            ),
+                            _buildDivider(),
+                            // 알람 시간
+                            ListTile(
+                              contentPadding: const EdgeInsets.only(left: 56, right: 16),
+                              title: const Text('알람 시간', style: TextStyle(fontSize: 14)),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(_alarmTime, style: const TextStyle(color: AppColors.mainBtn, fontSize: 14)),
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+                                ],
+                              ),
+                              onTap: () => _showSelectionModal('알람 시간 선택', _alarmTimeOptions, _alarmTime, (val) => setState(() => _alarmTime = val)),
                             ),
                           ],
                         ],
                       ),
                     ),
-                  )
-                )
+                    const SizedBox(height: 40),
+
+                    // 저장 버튼
+                    ElevatedButton(
+                      onPressed: _saveSchedule,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.mainBtn,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
+                      ),
+                      child: _isLoading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : Text(_isEditing ? '수정 완료' : '일정 등록', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+
+                    // 삭제 버튼 (수정 모드일 때만)
+                    if (_isEditing) ...[
+                      const SizedBox(height: 12),
+                      TextButton(
+                          onPressed: _isLoading ? null : _showDeleteConfirmDialog,
+                          style: TextButton.styleFrom(foregroundColor: Colors.red),
+                          child: const Text('이 일정 삭제')
+                      ),
+                    ],
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
-            ],
-          )
+            ),
+          ],
         ),
-      )
+      ),
     );
+  }
+
+  // --- UI 헬퍼 메서드 ---
+  Widget _buildSectionLabel(String label) {
+    return Padding(
+        padding: const EdgeInsets.only(left: 4, bottom: 8),
+        child: Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 13, fontWeight: FontWeight.w600))
+    );
+  }
+
+  BoxDecoration _boxDecoration() {
+    return BoxDecoration(
+        color: AppColors.lightBackground,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))]
+    );
+  }
+
+  Widget _buildDivider() {
+    return const Divider(height: 1, thickness: 1, indent: 16, endIndent: 16, color: Color(0xFFF0F0F0));
   }
 }

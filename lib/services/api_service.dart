@@ -1,10 +1,10 @@
 // lib/services/api_service.dart
 
 import 'dart:async';
-import 'package:curemate/utils/logger.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import '../app/token_manager.dart';
+import 'package:curemate/utils/logger.dart';
+import 'package:curemate/app/token_manager.dart';
 import 'auth_service.dart';
 
 class ApiService {
@@ -27,15 +27,6 @@ class ApiService {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          // 요청 로그
-          Logger.httpRequest(
-            method: options.method,
-            url: options.uri.toString(),
-            headers: options.headers,
-            body: options.data,
-            tag: 'API',
-          );
-
           // Refresh 요청은 인터셉터 스킵
           if (options.path.contains('/loginRefresh')) {
             return handler.next(options);
@@ -50,6 +41,15 @@ class ApiService {
           if (refreshToken != null) {
             options.headers['RefreshToken'] = 'Bearer $refreshToken';
           }
+
+          // 요청 로그
+          Logger.httpRequest(
+            method: options.method,
+            url: options.uri.toString(),
+            headers: options.headers,
+            body: options.data,
+            tag: 'API',
+          );
 
           return handler.next(options);
         },
@@ -127,6 +127,10 @@ class ApiService {
               final newAccessToken = refreshResponse.accessToken;
               final newRefreshToken = refreshResponse.refreshToken;
 
+              if (newAccessToken == null || newRefreshToken == null) {
+                throw Exception('갱신된 토큰이 유효하지 않습니다.');
+              }
+
               await _tokenManager.saveAccessToken(newAccessToken);
               await _tokenManager.saveRefreshToken(newRefreshToken);
 
@@ -167,7 +171,7 @@ class ApiService {
     }
   }
 
-  Future<Response> post(String path, {Map<String, dynamic>? data}) async {
+  Future<Response> post(String path, {dynamic data}) async {
     try {
       return await _dio.post(path, data: data);
     } on DioException catch (e) {

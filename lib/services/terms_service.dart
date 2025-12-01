@@ -13,37 +13,48 @@ class TermsService {
   TermsService._internal() : _apiService = ApiService();
 
   /// 약관 동의 필요 여부 확인
+  /// [custSeq] : 사용자 시퀀스
+  /// 반환값: true(동의 필요), false(동의 불필요 - 목록 0개)
   Future<bool> checkTermsNeeded() async {
     try {
-      // API 엔드포인트 예시
-      // final Response response = await _apiService.get('/api/terms/status');
+      // 1. 미동의 약관 목록 조회 (기존 getPolicyList 활용)
+      final policies = await getPolicyList();
 
-      // final data = response.data['data'] as Map<String, dynamic>;
-      // 이미 동의했으면 true -> 우리는 '필요한지'를 묻는 것이므로 반대로 리턴
-      // final bool isAgreed = data['isAgreed'] ?? false;
-
-      // return !isAgreed;
-      return true;
+      // 2. 목록이 비어있으면(0개) false, 있으면 true 반환
+      return policies.isNotEmpty;
     } catch (e) {
-      // 에러 시 안전하게 동의 절차를 밟도록 하거나, 정책에 따라 false 처리
       print('약관 상태 확인 실패: $e');
-      return true; // 일단 동의 필요하다고 가정 (보수적 접근)
+      // 에러 발생 시 안전하게 동의가 필요한 상태로 간주하여 true 반환
+      // (무한 루프 방지를 위해 상황에 따라 false로 처리할 수도 있음)
+      return true;
     }
   }
 
-  /// 약관 동의 전송
-  Future<void> submitTermsAgreement({required bool locationAgreed, required bool marketingAgreed,}) async {
+  /// 약관 동의 전송 API
+  /// [consentList] : {custSeq, consentIndCmcd, policySeq, consentYn} 형태의 리스트
+  Future<void> submitTermsAgreement(List<Map<String, dynamic>> consentList) async {
     try {
-      await _apiService.post(
-        '/api/terms/agree',
+      final Response response = await _apiService.post(
+        '/rest/customer/updateConsent',
         data: {
-          'locationTerm': locationAgreed,
-          'marketingTerm': marketingAgreed,
-          // 필요한 경우 약관 버전 ID 등을 함께 전송
+          'param': consentList,
         },
       );
+
+      final responseData = response.data as Map<String, dynamic>;
+
+      // 응답 코드 확인 (성공이 아닐 경우 에러 처리)
+      if (responseData['code'] != '200') {
+        throw Exception('약관 동의 처리 실패: ${responseData['message'] ?? responseData['detail']}');
+      }
+    } on DioException catch (dioErr) {
+      final data = dioErr.response?.data;
+      if (data is Map && data['message'] != null) {
+        throw data['message'];
+      }
+      throw dioErr.message ?? '약관 동의 전송 중 오류가 발생했습니다.';
     } catch (e) {
-      throw Exception('약관 동의 전송 실패: $e');
+      rethrow;
     }
   }
 
@@ -84,65 +95,34 @@ class TermsService {
   }
 
   /// 약관 목록 조회
-  Future<List<PolicyModel>> getPolicyList() async {
+  Future<List<PolicyModel>> getPolicyList({bool isDetail = false}) async {
     try {
-      // 실제 API 호출: final response = await _apiService.get('/api/policies');
-
-      await Future.delayed(const Duration(milliseconds: 500)); // 로딩 시뮬레이션
-
-      // Mock Data
-      final Map<String, dynamic> mockResponse = {
-        "code": "200",
-        "data": [
-          {
-            "policySeq": 1,
-            "policyTypeCmcd": "ServicePolicy",
-            "policyNm": "서비스 이용약관",
-            "policyDesc": "<h3>제1조 (목적)</h3><p>본 약관은 서비스 이용에 대한...</p>",
-            "policyVersion": "0.1",
-            "requiredYn": "Y"
-          },
-          {
-            "policySeq": 2,
-            "policyTypeCmcd": "PrivacyPolicy",
-            "policyNm": "개인정보 처리방침",
-            "policyDesc": "<h3>제1조 (개인정보 수집)</h3><p>회사는 다음과 같은 정보를 수집합니다...</p>",
-            "policyVersion": "0.1",
-            "requiredYn": "Y"
-          },
-          {
-            "policySeq": 3,
-            "policyTypeCmcd": "LocationPolicy",
-            "policyNm": "위치기반 서비스 이용약관",
-            "policyDesc": "<h3>위치 정보 이용</h3><p>사용자의 위치를 기반으로...</p>",
-            "policyVersion": "0.1",
-            "requiredYn": "Y"
-          },
-          {
-            "policySeq": 4,
-            "policyTypeCmcd": "Marketing",
-            "policyNm": "마케팅 정보 수신 동의",
-            "policyDesc": "<p>이벤트 및 혜택 알림을 받으실 수 있습니다.</p>",
-            "policyVersion": "0.1",
-            "requiredYn": "N"
-          },
-          {
-            "policySeq": 5,
-            "policyTypeCmcd": "Notice",
-            "policyNm": "단순 공지 (상세 없음)",
-            "policyDesc": null, // 상세 내용 없음 테스트
-            "policyVersion": "0.1",
-            "requiredYn": "N"
+      final Response response = await _apiService.post(
+        '/rest/customer/selectNonConsent',
+        data: {
+          "param": {
+            "detailYn": isDetail ? "Y" : "N"
           }
-        ]
-      };
+        },
+      );
 
-      final List<dynamic> dataList = mockResponse['data'];
+      final responseData = response.data as Map<String, dynamic>;
+
+      if (responseData['code'] != '200') {
+        throw Exception('약관 조회 실패: ${responseData['message']}');
+      }
+
+      final List<dynamic> dataList = responseData['data'] ?? [];
       return dataList.map((json) => PolicyModel.fromJson(json)).toList();
 
+    } on DioException catch (dioErr) {
+      final data = dioErr.response?.data;
+      if (data is Map && data['message'] != null) {
+        throw data['message'];
+      }
+      throw dioErr.message ?? '약관 목록을 불러오는 중 오류가 발생했습니다.';
     } catch (e) {
-      print('약관 목록 조회 실패: $e');
-      return [];
+      rethrow;
     }
   }
 }

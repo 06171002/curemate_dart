@@ -1,13 +1,13 @@
 // lib/features/auth/view/login_screen.dart
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
-import 'package:go_router/go_router.dart';
 
-import '../viewmodel/auth_viewmodel.dart';
-import '../../../app/theme/app_colors.dart';
-import '../../../routes/route_paths.dart';
+import 'package:curemate/features/auth/viewmodel/auth_viewmodel.dart';
+import 'package:curemate/app/theme/app_colors.dart';
 
 final Color backgroundColor = const Color(0xFFF0F8FF);
 
@@ -55,7 +55,7 @@ class LoginScreen extends StatelessWidget {
             Container(
               width: double.infinity,
               height: double.infinity,
-              color: Colors.black.withOpacity(0.3), // 반투명 배경
+              color: AppColors.overlay, // 반투명 배경
               child: const Center(
                 child: CircularProgressIndicator(
                   color: AppColors.mainBtn,
@@ -117,6 +117,16 @@ class LoginScreen extends StatelessWidget {
       children: [
         // Google
         ElevatedButton.icon(
+          icon: SvgPicture.asset('assets/svgs/ic_google.svg', width: 22, height: 22),
+          label: Text('Google 로그인', style: theme.textTheme.labelLarge?.copyWith(color: googleButtonTextColor)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: theme.colorScheme.surface,
+            foregroundColor: googleButtonTextColor,
+            elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            minimumSize: const Size(double.infinity, 56),
+          ),
           onPressed: () async {
             await viewModel.signInWithGoogle();
             if (viewModel.errorMessage != null && context.mounted) {
@@ -126,17 +136,6 @@ class LoginScreen extends StatelessWidget {
               viewModel.clearError();
             }
           },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: theme.colorScheme.surface,
-            foregroundColor: googleButtonTextColor,
-            elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            minimumSize: const Size(double.infinity, 56),
-          ),
-          icon: SvgPicture.asset('assets/svgs/ic_google.svg', width: 24, height: 24),
-          label: Text('Google로 로그인',
-              style: theme.textTheme.labelLarge?.copyWith(color: googleButtonTextColor)),
         ),
         const SizedBox(height: 12),
 
@@ -146,7 +145,7 @@ class LoginScreen extends StatelessWidget {
           label: const Text('카카오로 로그인'),
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.kakaoYellow,
-            foregroundColor: Colors.black.withOpacity(0.85),
+            foregroundColor: Colors.black.withValues(alpha: 0.85),
             minimumSize: const Size(double.infinity, 56),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
             padding: const EdgeInsets.symmetric(vertical: 16),
@@ -174,6 +173,26 @@ class LoginScreen extends StatelessWidget {
             );
           },
         ),
+
+        if (Platform.isIOS) ...[
+          const SizedBox(height: 12),
+          // Apple
+          ElevatedButton.icon(
+            icon: SvgPicture.asset('assets/svgs/ic_apple.svg', width: 24, height: 24),
+            label: const Text('Apple로 로그인'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.black, // 애플 가이드라인: 검은색 배경
+              foregroundColor: AppColors.white, // 흰색 텍스트
+              minimumSize: const Size(double.infinity, 56),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.0)),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            onPressed: () async {
+              await viewModel.signInWithApple();
+            },
+          ),
+        ]
       ],
     );
   }

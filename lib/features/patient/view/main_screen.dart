@@ -30,7 +30,7 @@ class _MainPageState extends State<MainPage> {
       final nav = Provider.of<BottomNavProvider>(context, listen: false);
       nav.changeIndex(0);
 
-      final patientId = nav.patientId;
+      final patientId = nav.cureSeq;
       if (patientId != null) {
         Provider.of<PatientViewModel>(context, listen: false)
             .fetchPatientById(patientId);
@@ -51,7 +51,7 @@ class _MainPageState extends State<MainPage> {
   @override
   Widget build(BuildContext context) {
     final nav = Provider.of<BottomNavProvider>(context);
-    final patientId = nav.patientId;
+    final patientId = nav.cureSeq;
 
     return Container(
         color: AppColors.white, // Container에 색상 적용

@@ -1,5 +1,6 @@
 // lib/features/test/view/test_screen.dart (수정된 전체 코드)
 
+import 'package:curemate/features/cure_room/model/curer_model.dart';
 import 'package:curemate/features/widgets/common/bottom_nav_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -23,216 +24,256 @@ class TestScreen extends StatelessWidget {
     final text = AppLocalizations.of(context)!;
 
     return Scaffold(
-      appBar: AppBar(
+      /*appBar: AppBar(
         title: Text(text.testPageTitle),
         automaticallyImplyLeading: false,
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16.0),
-          children: [
-            // ═══════════════════════════════════════════
-            // ✅ 모드 전환 테스트 (환자 선택 시뮬레이션)
-            // ═══════════════════════════════════════════
-            _buildSectionTitle(context, '모드 전환 테스트'),
-
-            Container(
-              padding: const EdgeInsets.all(12),
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                color: navProvider.isPatientMode ? Colors.green[50] : Colors.blue[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: navProvider.isPatientMode ? Colors.green : Colors.blue,
-                ),
-              ),
+      ),*/
+      body: Column(
+        children: [
+          SafeArea(
+            top: true,
+            child: Container(
               child: Text(
-                navProvider.isPatientMode
-                    ? '현재 상태: [환자 모드] - ${navProvider.patientInfo?['name']}'
-                    : '현재 상태: [메인 모드]',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: navProvider.isPatientMode ? Colors.green[800] : Colors.blue[800],
+                text.testPageTitle,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
                 ),
-                textAlign: TextAlign.center,
               ),
-            ),
+            )
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(16.0),
+              children: [
+                // ═══════════════════════════════════════════
+                // ✅ 모드 전환 테스트 (환자 선택 시뮬레이션)
+                // ═══════════════════════════════════════════
+                _buildSectionTitle(context, '모드 전환 테스트'),
 
-            _buildTestButton(
-              context,
-              icon: Icons.person_pin_circle,
-              label: '환자 선택 시뮬레이션 (홍길동)',
-              color: Colors.orange,
-              onPressed: () {
-                // ✅ Provider에 환자 정보 업데이트 -> 헤더 변경됨
-                context.read<BottomNavProvider>().selectPatient(
-                  1, // ID
-                  {'id': 1, 'name': '홍길동', 'age': 30, 'gender': '남'}, // Info Map
-                );
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: navProvider.isMainMode ? Colors.blue[50] : Colors.green[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: navProvider.isMainMode ? Colors.blue : Colors.green,
+                    ),
+                  ),
+                  child: Text(
+                    navProvider.isMainMode
+                        ? '현재 상태: [메인 모드]'
+                        : '현재 상태: [환자 모드] - ${navProvider.selectedCurer?.cureNm}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: navProvider.isMainMode ? Colors.blue[800] : Colors.green[800],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('환자 모드로 전환되었습니다 (헤더 확인)')),
-                );
-              },
-            ),
-
-            _buildTestButton(
-              context,
-              icon: Icons.home,
-              label: '메인 모드로 복귀',
-              color: Colors.grey,
-              onPressed: () {
-                // ✅ 초기화 -> 헤더 로고로 변경됨
-                context.read<BottomNavProvider>().clearPatient();
-              },
-            ),
-
-            const Divider(height: 32),
-            // ═══════════════════════════════════════════
-            // 화면 이동 버튼
-            // ═══════════════════════════════════════════
-            _buildSectionTitle(context, '화면 이동'),
-
-            _buildTestButton(
-              context,
-              icon: Icons.home,
-              label: '홈 화면으로 이동',
-              onPressed: () {
-                context.go(RoutePaths.home);
-              },
-              color: Colors.blue,
-            ),
-
-            _buildTestButton(
-              context,
-              icon: Icons.person,
-              label: '프로필 화면으로 이동',
-              onPressed: () {
-                context.push(RoutePaths.profile);
-              },
-              color: Colors.purple,
-            ),
-
-            _buildTestButton(
-              context,
-              icon: Icons.home_outlined,
-              label: '홈 화면 (검색 탭)으로 이동',
-              onPressed: () {
-                context.go(RoutePaths.homeWithTab(1));
-              },
-              color: Colors.blueAccent,
-            ),
-
-            _buildTestButton(
-              context,
-              icon: Icons.person_outline,
-              label: '프로필 상세 (User ID: 1)',
-              onPressed: () {
-                context.push(RoutePaths.profileDetail(1));
-              },
-              color: Colors.deepPurple,
-            ),
-
-            const Divider(height: 32),
-
-            // ═══════════════════════════════════════════
-            // API 테스트
-            // ═══════════════════════════════════════════
-            _buildSectionTitle(context, 'API 테스트'),
-
-            _buildTestButton(
-              context,
-              icon: Icons.monitor_heart,
-              label: '서버 헬스 체크',
-              onPressed: () async {
-                try {
-                  final response = await ApiService().get(
-                    '/rest/system/health',
-                  );
-
-                  if (context.mounted) {
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text("Health Check 성공"),
-                        content: Text("응답 데이터:\n${response.data}"),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text("확인"),
-                          ),
-                        ],
-                      ),
+                _buildTestButton(
+                  context,
+                  icon: Icons.person_pin_circle,
+                  label: '환자 선택 시뮬레이션 (홍길동)',
+                  color: Colors.orange,
+                  onPressed: () {
+                    // ✅ Provider에 환자 정보 업데이트 -> 헤더 변경됨
+                    // 큐어룸 선택 시뮬레이션 (더미 데이터 생성)
+                    final dummyCurer = CurerModel(
+                      cureSeq: 1,
+                      custSeq: 100,
+                      cureNm: '홍길동의 케어룸',
+                      cureDesc: '홍길동 환자의 재활 및 약물 관리를 위한 공간입니다.',
+                      regId: "100",
+                      regDttm: '2024-01-01',
                     );
-                  }
-                } catch (e) {
-                  if (context.mounted) {
+
+                    context.read<BottomNavProvider>().selectCurer(dummyCurer);
+
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text("헬스 체크 실패: $e"),
-                        backgroundColor: Colors.red,
-                      ),
+                      const SnackBar(content: Text('환자 모드로 전환되었습니다 (헤더 확인)')),
                     );
-                  }
-                }
-              },
-              color: Colors.teal,
+                  },
+                ),
+
+                _buildTestButton(
+                  context,
+                  icon: Icons.home,
+                  label: '메인 모드로 복귀',
+                  color: Colors.grey,
+                  onPressed: () {
+                    // ✅ 초기화 -> 헤더 로고로 변경됨
+                    context.read<BottomNavProvider>().clearCurer();
+                  },
+                ),
+
+                const Divider(height: 32),
+                // ═══════════════════════════════════════════
+                // 화면 이동 버튼
+                // ═══════════════════════════════════════════
+                _buildSectionTitle(context, '화면 이동'),
+
+                _buildTestButton(
+                  context,
+                  icon: Icons.home,
+                  label: '홈 화면으로 이동',
+                  onPressed: () {
+                    context.go(RoutePaths.home);
+                  },
+                  color: Colors.blue,
+                ),
+
+                _buildTestButton(
+                  context,
+                  icon: Icons.person,
+                  label: '프로필 화면으로 이동',
+                  onPressed: () {
+                    context.push(RoutePaths.profile);
+                  },
+                  color: Colors.purple,
+                ),
+
+                _buildTestButton(
+                  context,
+                  icon: Icons.home_outlined,
+                  label: '홈 화면 (검색 탭)으로 이동',
+                  onPressed: () {
+                    context.go(RoutePaths.homeWithTab(1));
+                  },
+                  color: Colors.blueAccent,
+                ),
+
+                _buildTestButton(
+                  context,
+                  icon: Icons.person_outline,
+                  label: '프로필 상세 (User ID: 1)',
+                  onPressed: () {
+                    context.push(RoutePaths.profileDetail(1));
+                  },
+                  color: Colors.deepPurple,
+                ),
+
+                const Divider(height: 32),
+
+                // ═══════════════════════════════════════════
+                // API 테스트
+                // ═══════════════════════════════════════════
+                _buildSectionTitle(context, 'API 테스트'),
+
+                _buildTestButton(
+                  context,
+                  icon: Icons.monitor_heart,
+                  label: '서버 헬스 체크',
+                  onPressed: () async {
+                    try {
+                      final response = await ApiService().get(
+                        '/rest/system/health',
+                      );
+
+                      if (context.mounted) {
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text("Health Check 성공"),
+                            content: Text("응답 데이터:\n${response.data}"),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text("확인"),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text("헬스 체크 실패: $e"),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  color: Colors.teal,
+                ),
+
+                const Divider(height: 32),
+
+                // ═══════════════════════════════════════════
+                // 테마 & 언어 설정
+                // ═══════════════════════════════════════════
+                _buildSectionTitle(context, '테마 & 언어'),
+
+                _buildTestButton(
+                  context,
+                  icon: themeProvider.isDarkMode ? Icons.wb_sunny : Icons.dark_mode,
+                  label: themeProvider.isDarkMode
+                      ? text.changeToLight
+                      : text.changeToDark,
+                  onPressed: () {
+                    themeProvider.toggleTheme();
+                  },
+                  color: themeProvider.isDarkMode ? Colors.amber : Colors.black87,
+                ),
+
+                _buildTestButton(
+                  context,
+                  icon: Icons.language,
+                  label: '${text.localeName == 'ko' ? '영어로 변경' : 'Switch to Korean'}',
+                  onPressed: () {
+                    final newLocale = localeProvider.locale.languageCode == 'ko'
+                        ? const Locale('en')
+                        : const Locale('ko');
+                    localeProvider.setLocale(newLocale);
+                  },
+                  color: Colors.green,
+                ),
+
+                const Divider(height: 32),
+
+                _buildSectionTitle(context, '화상통화'),
+
+                _buildTestButton(
+                  context,
+                  icon: Icons.call,
+                  label: '화상통화연결',
+                  onPressed: () async {
+                    final shouldLogout = await _showLogoutDialog(context);
+
+                    if (shouldLogout == true) {
+                      await context.read<AuthViewModel>().signOut();
+                    }
+                  },
+                  color: Colors.indigo,
+                ),
+                const Divider(height: 32),
+
+                // ═══════════════════════════════════════════
+                // 기타
+                // ═══════════════════════════════════════════
+                _buildSectionTitle(context, '기타'),
+
+                _buildTestButton(
+                  context,
+                  icon: Icons.logout,
+                  label: text.logout,
+                  onPressed: () async {
+                    final shouldLogout = await _showLogoutDialog(context);
+
+                    if (shouldLogout == true) {
+                      await context.read<AuthViewModel>().signOut();
+                    }
+                  },
+                  color: Colors.red,
+                ),
+              ],
             ),
-
-            const Divider(height: 32),
-
-            // ═══════════════════════════════════════════
-            // 테마 & 언어 설정
-            // ═══════════════════════════════════════════
-            _buildSectionTitle(context, '테마 & 언어'),
-
-            _buildTestButton(
-              context,
-              icon: themeProvider.isDarkMode ? Icons.wb_sunny : Icons.dark_mode,
-              label: themeProvider.isDarkMode
-                  ? text.changeToLight
-                  : text.changeToDark,
-              onPressed: () {
-                themeProvider.toggleTheme();
-              },
-              color: themeProvider.isDarkMode ? Colors.amber : Colors.black87,
-            ),
-
-            _buildTestButton(
-              context,
-              icon: Icons.language,
-              label: '${text.localeName == 'ko' ? '영어로 변경' : 'Switch to Korean'}',
-              onPressed: () {
-                final newLocale = localeProvider.locale.languageCode == 'ko'
-                    ? const Locale('en')
-                    : const Locale('ko');
-                localeProvider.setLocale(newLocale);
-              },
-              color: Colors.green,
-            ),
-
-            const Divider(height: 32),
-
-            // ═══════════════════════════════════════════
-            // 기타
-            // ═══════════════════════════════════════════
-            _buildSectionTitle(context, '기타'),
-
-            _buildTestButton(
-              context,
-              icon: Icons.logout,
-              label: text.logout,
-              onPressed: () async {
-                final shouldLogout = await _showLogoutDialog(context);
-
-                if (shouldLogout == true) {
-                  await context.read<AuthViewModel>().signOut();
-                }
-              },
-              color: Colors.red,
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

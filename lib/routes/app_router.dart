@@ -3,7 +3,9 @@
 import 'package:curemate/features/auth/model/policy_model.dart';
 import 'package:curemate/features/auth/view/terms_agreement_screen.dart';
 import 'package:curemate/features/auth/view/terms_detail_screen.dart';
+import 'package:curemate/features/cure_room/view/add_cure_room_screen.dart';
 import 'package:curemate/features/main_layout/view/main_layout_screen.dart';
+import 'package:curemate/features/profile/view/profile_edit_screen.dart';
 import 'package:curemate/services/permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -18,6 +20,16 @@ import 'package:curemate/features/profile/view/profile_detail_screen.dart';
 import 'package:curemate/features/settings/view/settings_screen.dart';
 import 'package:curemate/features/auth/viewmodel/auth_viewmodel.dart';
 import 'route_paths.dart';
+
+
+import 'package:curemate/features/cure_room/view/patient_profile_screen.dart';
+import 'package:curemate/features/cure_room/view/medical_history_screen.dart';
+import 'package:curemate/features/cure_room/view/medical_detail_screen.dart';
+import 'package:curemate/features/cure_room/view/medication_list_screen.dart';
+import 'package:curemate/features/cure_room/view/medication_detail_screen.dart';
+import 'package:curemate/features/cure_room/view/add_patient_screen.dart';
+import 'package:curemate/features/cure_room/model/cure_room_models.dart';
+
 
 class AppRouter {
   // Private constructor
@@ -174,18 +186,33 @@ class AppRouter {
         //   },
         // ),
 
-        // Profile
         GoRoute(
           path: RoutePaths.profile,
           name: 'profile',
           builder: (context, state) => const ProfileScreen(),
           routes: [
-            // Profile Detail (중첩 라우트)
+            // ✅ [중요] 'edit'을 ':userId'보다 먼저 정의해야 합니다.
+            // 그렇지 않으면 'edit'이라는 문자열을 userId(int)로 파싱하려다 에러가 발생합니다.
+            GoRoute(
+              path: 'edit', // /profile/edit
+              name: 'profileEdit',
+              builder: (context, state) => const ProfileEditScreen(),
+            ),
+
+            // Profile Detail
             GoRoute(
               path: ':userId', // /profile/:userId
               name: 'profileDetail',
               builder: (context, state) {
-                final userId = int.parse(state.pathParameters['userId']!);
+                // 이제 userId가 숫자가 아닌 경우(예: 잘못된 접근)에 대한 방어 코드도 있으면 좋습니다.
+                final userIdStr = state.pathParameters['userId']!;
+                final userId = int.tryParse(userIdStr);
+
+                if (userId == null) {
+                  // 숫자가 아니면 에러 페이지나 리스트로 보냄
+                  return const Scaffold(body: Center(child: Text("잘못된 사용자 ID입니다.")));
+                }
+
                 return ProfileDetailScreen(userId: userId);
               },
             ),
@@ -198,7 +225,135 @@ class AppRouter {
           name: 'settings',
           builder: (context, state) => const SettingsScreen(),
         ),
+
+        
+        // ===============================
+        //  CureRoom 관련 라우트들 추가
+        // ===============================
+
+        // 프로필 (환자 정보 카드에서 들어가는 화면)
+        GoRoute(
+  path: RoutePaths.cureRoomPatientProfile,
+  name: 'cure_room_patient_profile',
+  builder: (context, state) {
+    final extra = state.extra as Map<String, dynamic>?;
+
+    if (extra == null || extra['patient'] == null) {
+      return const Scaffold(
+        body: Center(child: Text('환자 정보가 없습니다.')),
+      );
+    }
+
+    final patient = extra['patient'] as CurePatientModel;
+    final profileImgUrl = extra['profileImgUrl'] as String?;
+
+    return PatientProfileScreen(
+      patient: patient,
+      profileImgUrl: profileImgUrl,
+    );
+  },
+),
+        GoRoute(
+          path: RoutePaths.addCureRoom,
+          name: 'add_cure_room',
+          builder: (context, state) => const AddCureRoomScreen(),
+        ),
+
+         GoRoute(
+          path: RoutePaths.cureRoomAddPatient,
+          name: 'cure_room_add_patient',
+          builder: (context, state) => const AddPatientScreen(),
+        ),
+
+        // 병력 목록 (병력 관리 그리드 화면)
+        GoRoute(
+          path: RoutePaths.cureRoomMedicalHistory,
+          name: 'cure_room_medical_history',
+          builder: (context, state) {
+            final extra = state.extra as Map<String, dynamic>?;
+            final patient = extra?['patient'] as CurePatientModel?;
+
+            if (patient == null) {
+              return const Scaffold(
+                body: Center(child: Text('환자 정보가 없습니다.')),
+              );
+            }
+
+            return MedicalHistoryScreen(patient: patient);
+          },
+        ),
+        // 병력 상세/추가
+        GoRoute(
+          path: RoutePaths.cureRoomMedicalHistoryDetail,
+          name: 'cure_room_medical_history_detail',
+          builder: (context, state) {
+            final extra = state.extra as Map<String, dynamic>?;
+
+            final isNew = (extra?['isNew'] as bool?) ?? false;
+            final curePatientSeq = extra?['curePatientSeq'] as int?;
+            final disease = extra?['disease'] as CureDiseaseModel?; // ✅ 모델 받기
+
+            if (curePatientSeq == null) {
+              return const Scaffold(
+                body: Center(child: Text('환자 ID가 없습니다.')),
+              );
+            }
+
+            return MedicalHistoryDetailPage(
+              isNew: isNew,
+              curePatientSeq: curePatientSeq,
+              disease: disease, // ✅ 여기로 전달
+            );
+          },
+        ),
+
+        // 복용 약 목록
+        GoRoute(
+          path: RoutePaths.cureRoomMedications,
+          name: 'cure_room_medications',
+          builder: (context, state) {
+            final extra = state.extra as Map<String, dynamic>?;
+
+            if (extra == null || extra['curePatientSeq'] == null) {
+              return const Scaffold(
+                body: Center(child: Text('환자 정보가 없어요 (curePatientSeq 필요)')),
+              );
+            }
+
+            final int curePatientSeq = extra['curePatientSeq'] as int;
+            final List<CureMedicineGroupModel>? groups =
+                extra['medicineGroups'] as List<CureMedicineGroupModel>?;
+
+            return MedicationListScreen(
+              curePatientSeq: curePatientSeq,
+              initialGroups: groups,
+            );
+          },
+        ),
+
+        // 복용 약 추가/수정
+        GoRoute(
+          path: RoutePaths.cureRoomMedicationDetail,
+          name: 'cureRoomMedicationDetail',
+          builder: (context, state) {
+            final extra = state.extra as Map<String, dynamic>?;
+
+            final int curePatientSeq = extra?['curePatientSeq'] as int;
+            final bool isEdit = extra?['isEdit'] as bool? ?? false;
+
+            return MedicationDetailPage(
+              curePatientSeq: curePatientSeq,
+              isEdit: isEdit,
+               group: extra?['group'] as CureMedicineGroupModel?,  // 🔹 추가
+            );
+          },
+        ),
       ],
+        // ===============================
+        //  CureRoom 관련 라우트들 끝
+        // ===============================
+
+
 
       // 에러 페이지
       errorBuilder: (context, state) => Scaffold(

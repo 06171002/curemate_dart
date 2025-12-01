@@ -81,6 +81,7 @@ class _TermsAgreementScreenState extends State<TermsAgreementScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
+        top:true,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: Column(

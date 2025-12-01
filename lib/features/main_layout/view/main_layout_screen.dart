@@ -1,9 +1,15 @@
-import 'package:curemate/features/home/view/home_tab.dart';
-import 'package:curemate/features/settings/view/more_tab.dart';
+import 'package:curemate/features/cure_nursing/view/cure_nursing_tab.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:curemate/features/widgets/common/bottom_nav_provider.dart';
 import 'package:curemate/app/theme/app_colors.dart';
+import 'package:curemate/features/widgets/common/bottom_nav_provider.dart';
+import 'package:curemate/features/main_layout/widget/cure_room_drawer.dart';
+import 'package:curemate/features/home/view/home_tab.dart';
+import 'package:curemate/features/settings/view/more_tab.dart';
+
+
+import '../../story/view/story_tab.dart';
+import 'package:curemate/features/calendar/view/calendar_screen.dart';
 
 class MainLayoutScreen extends StatefulWidget {
   const MainLayoutScreen({super.key});
@@ -13,14 +19,9 @@ class MainLayoutScreen extends StatefulWidget {
 }
 
 class _MainLayoutScreenState extends State<MainLayoutScreen> {
-  late PageController _pageController;
-
-  @override
-  void initState() {
-    super.initState();
-    final provider = context.read<BottomNavProvider>();
-    _pageController = PageController(initialPage: provider.currentIndex);
-  }
+  final PageController _pageController = PageController();
+  // ✅ Scaffold 상태 제어를 위한 GlobalKey
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void dispose() {
@@ -33,43 +34,43 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     final navProvider = context.watch<BottomNavProvider>();
 
     return Scaffold(
-      // 1. 동적 헤더 (모드에 따라 변경됨)
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(60),
-        child: _buildDynamicHeader(context, navProvider),
-      ),
-
-      // 2. 본문 (PageView로 탭 구현)
-      body: PageView(
-        controller: _pageController,
-        physics: const BouncingScrollPhysics(),
-        onPageChanged: (index) {
-          // 스와이프 시 인덱스만 업데이트
-          context.read<BottomNavProvider>().changeIndex(index);
-        },
+      key: _scaffoldKey, // ✅ Key 연결 확인
+      backgroundColor: Colors.white,
+      drawer: const CureRoomDrawer(),
+      body: Column(
         children: [
-          const HomeTab(),
-          _buildPlaceholderTab("📖 뿌듯일지 (준비중)"),
-          _buildPlaceholderTab("🏥 큐어룸 (환자 관리)"),
-          _buildPlaceholderTab("📅 캘린더 (준비중)"),
-          const MoreTab(),
+          SafeArea(
+            top: true,
+            child: _buildDynamicHeader(context, navProvider),
+          ),
+          Expanded(
+            child: PageView(
+              controller: _pageController,
+              physics: const BouncingScrollPhysics(),
+              onPageChanged: (index) {
+                context.read<BottomNavProvider>().changeIndex(index);
+              },
+              children: [
+                const HomeTab(),
+                const CalendarScreen(),
+                const CureNursingTab(), // _buildPlaceholderTab("📝 증상일지 (준비중)"),
+                const StoryTab(), // 뿌듯일지
+                const MoreTab(),
+              ],
+            ),
+          ),
         ],
       ),
-
-      // 3. 하단 네비게이션
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: navProvider.currentIndex,
         onTap: (index) {
-          // 홈 탭(0)을 눌렀는데, 이미 홈 탭이고, 환자 모드라면 -> 메인 모드로 복귀
-          if (index == 0 && navProvider.currentIndex == 0 && navProvider.isPatientMode) {
-            navProvider.clearPatient();
+          if (index == 0 && navProvider.currentIndex == 0 && navProvider.isCureMode) {
+            navProvider.clearCurer();
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('메인 모드로 전환되었습니다.'), duration: Duration(seconds: 1)),
             );
-            return; // 페이지 이동 없음
+            return;
           }
-
-          // 그 외의 경우 해당 탭으로 이동
           navProvider.changeIndex(index);
           _pageController.jumpToPage(index);
         },
@@ -80,14 +81,143 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
         selectedFontSize: 12,
         unselectedFontSize: 12,
         elevation: 8,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: '홈'),
-          BottomNavigationBarItem(icon: Icon(Icons.book), label: '뿌듯일지'),
-          BottomNavigationBarItem(icon: Icon(Icons.local_hospital), label: '큐어룸'),
-          BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: '캘린더'),
-          BottomNavigationBarItem(icon: Icon(Icons.more_horiz), label: '더보기'),
+        items: [
+          BottomNavigationBarItem(
+            icon: Icon(navProvider.isCureMode ? Icons.local_hospital : Icons.home_filled),
+            label: navProvider.isCureMode ? '큐어룸' : '홈',
+          ),
+          const BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: '캘린더'),
+          const BottomNavigationBarItem(icon: Icon(Icons.edit_note), label: '증상일지'),
+          const BottomNavigationBarItem(icon: Icon(Icons.book), label: '뿌듯일지'),
+          const BottomNavigationBarItem(icon: Icon(Icons.more_horiz), label: '더보기'),
         ],
       ),
+    );
+  }
+
+  Widget _buildDynamicHeader(BuildContext context, BottomNavProvider provider) {
+    return AppBar(
+      elevation: 0,
+      backgroundColor: Colors.white,
+      centerTitle: false,
+      automaticallyImplyLeading: false,
+      // 타이틀 영역 전체 터치 시 드로어 열기
+      title: GestureDetector(
+        onTap: () {
+          _scaffoldKey.currentState?.openDrawer();
+        },
+        behavior: HitTestBehavior.opaque,
+        child: provider.isMainMode
+            ? _buildMainLogo()
+            : _buildCurerHeader(context, provider),
+      ),
+      actions: [
+        // ✅ Row로 묶어 아이콘 간 간격을 정밀 제어합니다.
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 1. 알림 아이콘
+            _buildCustomActionIcon(
+              icon: Icons.notifications_none,
+              onTap: () {
+                // 알림 화면 이동 로직
+              },
+            ),
+
+            // 2. 설정 아이콘 (큐어룸 모드일 때만)
+            if (provider.isCureMode) ...[
+              // 필요하다면 여기에 SizedBox(width: 4) 등을 추가해 미세 조정 가능
+              // 현재는 0 간격으로 붙여서 buildCustomActionIcon의 패딩만 적용됨
+              _buildCustomActionIcon(
+                icon: Icons.settings_outlined,
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("큐어룸 설정 화면으로 이동합니다.")),
+                  );
+                },
+              ),
+            ],
+
+            // 오른쪽 끝 여백 (화면 가장자리와의 간격)
+            const SizedBox(width: 16),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCustomActionIcon({
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20), // 터치 시 원형 물결 효과
+        child: Padding(
+          padding: const EdgeInsets.all(6.0), // 🟢 이 값을 조절하여 아이콘 간격을 제어하세요 (작을수록 가까워짐)
+          child: Icon(icon, color: AppColors.black, size: 24),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMainLogo() {
+    return const Row(
+      children: [
+        Text(
+          'Curemate',
+          style: TextStyle(
+            color: AppColors.mainBtn,
+            fontFamily: 'Pretendard',
+            fontWeight: FontWeight.w900,
+            fontSize: 22,
+            letterSpacing: -0.5,
+          ),
+        ),
+        SizedBox(width: 4),
+        Icon(Icons.chevron_right, color: AppColors.mainBtn, size: 24),
+      ],
+    );
+  }
+
+  Widget _buildCurerHeader(BuildContext context, BottomNavProvider provider) {
+    final curer = provider.selectedCurer;
+    final String cureName = curer?.cureNm ?? '큐어룸';
+    final String? profileUrl = curer?.profileImgUrl;
+    final bool hasImage = profileUrl != null && profileUrl.isNotEmpty;
+
+    return Row(
+      children: [
+        // ✅ 이미지 로드 에러 방지 처리
+        CircleAvatar(
+          radius: 16,
+          backgroundColor: AppColors.lightGrey,
+          // 이미지가 있을 때만 NetworkImage 사용
+          backgroundImage: hasImage ? NetworkImage(profileUrl!) : null,
+          // 이미지 로드 실패 시 호출 (SocketException 등 방지)
+          onBackgroundImageError: hasImage
+              ? (exception, stackTrace) {
+            print('헤더 이미지 로드 실패: $exception');
+          } : null,
+          // 이미지가 없을 때만 아이콘 표시
+          child: !hasImage
+              ? const Icon(Icons.healing, size: 18, color: AppColors.grey)
+              : null,
+        ),
+        const SizedBox(width: 8),
+
+        Flexible(
+          child: Text(
+            cureName,
+            style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.bold),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: 4),
+        const Icon(Icons.chevron_right, color: Colors.black, size: 20),
+      ],
     );
   }
 
@@ -98,114 +228,6 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
         child: Text(
           title,
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.grey),
-        ),
-      ),
-    );
-  }
-
-  // ✅ 동적 헤더 빌더
-  Widget _buildDynamicHeader(BuildContext context, BottomNavProvider provider) {
-    return AppBar(
-      elevation: 0,
-      backgroundColor: Colors.white,
-      centerTitle: false,
-      automaticallyImplyLeading: false,
-      // 모드에 따라 타이틀 변경 (로고 <-> 환자 정보)
-      title: provider.isMainMode
-          ? _buildMainLogo()
-          : _buildPatientHeader(context, provider),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.notifications_none, color: Colors.black),
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('알림 화면 (준비중)')),
-            );
-          },
-        ),
-        const SizedBox(width: 8),
-      ],
-    );
-  }
-
-  Widget _buildMainLogo() {
-    return const Row(
-      children: [
-        Icon(Icons.health_and_safety, color: AppColors.mainBtn),
-        SizedBox(width: 8),
-        Text(
-          'Cure Mate',
-          style: TextStyle(
-            color: AppColors.mainBtn,
-            fontWeight: FontWeight.bold,
-            fontSize: 22,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ✅ 환자 모드일 때 헤더
-  Widget _buildPatientHeader(BuildContext context, BottomNavProvider provider) {
-    // Provider에 저장된 환자 이름 가져오기 (없으면 기본값)
-    final String patientName = provider.patientInfo?['name'] ?? '환자';
-
-    return GestureDetector(
-      onTap: () {
-        _showPatientOptions(context, provider);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-        decoration: BoxDecoration(
-          color: Colors.grey[100],
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircleAvatar(
-              radius: 14,
-              backgroundColor: AppColors.lightGrey,
-              child: Icon(Icons.person, size: 18, color: Colors.grey),
-            ),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '$patientName 환자',
-                  style: const TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.bold),
-                ),
-                const Text(
-                  '탭하여 변경 ▾',
-                  style: TextStyle(color: Colors.grey, fontSize: 10),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showPatientOptions(BuildContext context, BottomNavProvider provider) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.home),
-              title: const Text('메인 모드로 돌아가기'),
-              onTap: () {
-                provider.clearPatient(); // ✅ 메인 모드로 복귀
-                Navigator.pop(context);
-              },
-            ),
-            // 추후 환자 목록 리스트 추가 가능
-          ],
         ),
       ),
     );

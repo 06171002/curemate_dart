@@ -254,7 +254,7 @@ class _PermissionScreenState extends State<PermissionScreen> {
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: iconColor.withOpacity(0.2),
+            color: iconColor.withValues(alpha: 0.2),
             shape: BoxShape.circle,
           ),
           child: Icon(icon, color: iconColor, size: 24),

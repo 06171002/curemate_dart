@@ -172,7 +172,7 @@ class AppThemes {
     outlinedButtonTheme: _buildOutlinedButtonTheme(isDark: true),
     textButtonTheme: _buildTextButtonTheme(isDark: true),
     dividerTheme: DividerThemeData(
-      color: AppColors.darkOutline.withOpacity(0.8),
+      color: AppColors.darkOutline.withValues(alpha: 0.8),
       thickness: 1,
     ),
   );
@@ -182,7 +182,7 @@ class AppThemes {
   static InputDecorationTheme _buildInputDecoration({required bool isDark}) {
     final Color hintColor = isDark
         ? AppColors.darkTextSecondary
-        : AppColors.lightTextSecondary.withOpacity(0.8);
+        : AppColors.lightTextSecondary.withValues(alpha: 0.8);
 
     return InputDecorationTheme(
       contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),

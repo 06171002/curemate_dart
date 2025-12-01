@@ -3,8 +3,10 @@ import 'package:curemate/app/locale/locale_provider.dart';
 import 'package:curemate/app/theme/theme_provider.dart';
 import 'package:curemate/app/token_manager.dart';
 import 'package:curemate/features/auth/viewmodel/auth_viewmodel.dart';
+import 'package:curemate/features/cure_room/viewmodel/cure_room_list_viewmodel.dart';
 import 'package:curemate/features/guardian/viewmodel/guardian_viewmodel.dart';
 import 'package:curemate/features/patient/viewmodel/patient_viewmodel.dart';
+import 'package:curemate/features/story/viewmodel/story_viewmodel.dart';
 import 'package:curemate/features/widgets/common/bottom_nav_provider.dart';
 import 'package:curemate/features/widgets/common/header_provider.dart';
 import 'package:curemate/firebase_options.dart';
@@ -59,8 +61,10 @@ void main() async {
         ChangeNotifierProvider(create: (context) => AuthViewModel()),  // 인증
         ChangeNotifierProvider(create: (_) => HeaderProvider()),       // 헤더
         ChangeNotifierProvider(create: (_) => BottomNavProvider()),    // 네비
+        ChangeNotifierProvider(create: (_) => CureRoomListViewModel()),
         ChangeNotifierProvider(create: (_) => PatientViewModel()),
         ChangeNotifierProvider(create: (_) => GuardianViewModel()),
+        ChangeNotifierProvider(create: (_) => StoryViewModel()),     // 뿌듯일지
       ],
       child: const App(), // 2. App 위젯이 MultiProvider의 자식으로 들어갑니다.
     ),

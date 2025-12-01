@@ -2,6 +2,7 @@
 
 import 'dart:io';
 
+import 'package:curemate/features/auth/model/customer_model.dart';
 import 'package:curemate/features/auth/model/policy_model.dart';
 import 'package:curemate/services/device_service.dart';
 import 'package:curemate/utils/logger.dart';
@@ -16,6 +17,7 @@ import 'package:curemate/services/auth_service.dart';
 import 'package:curemate/services/terms_service.dart';
 import 'package:curemate/services/permission_service.dart';
 import 'package:curemate/services/fcm_service.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 class AuthViewModel with ChangeNotifier {
   final AuthService _authService = AuthService();
@@ -56,13 +58,14 @@ class AuthViewModel with ChangeNotifier {
   bool _needsInitialPermissionCheck = false;
   bool get needsInitialPermissionCheck => _needsInitialPermissionCheck;
 
-  String? _userName;
-  String? _userEmail;
-  int? _custSeq;
+  // 로그인 사용자 정보
+  CustomerModel? _customer;
+  CustomerModel? get customer => _customer;
 
-  String? get userName => _userName;
-  String? get userEmail => _userEmail;
-  int? get custSeq => _custSeq;
+  String? get userName => _customer?.custNm;
+  String? get userEmail => _customer?.custEmail;
+  int? get custSeq => _customer?.custSeq;
+  String? get profileImgUrl => _customer?.profileImgUrl;
 
   /// 앱 시작 시 자동 로그인 시도
   Future<void> tryAutoLogin() async {
@@ -79,9 +82,9 @@ class AuthViewModel with ChangeNotifier {
       final accessToken = await _tokenManager.getAccessToken();
 
       if (accessToken != null && accessToken.isNotEmpty) {
-        _needsTermsAgreement = await _termsService.checkTermsNeeded(); // 실제 API 연동 시 주석 해제
-        _isLoggedIn = true;
-        Logger.i('✅ 자동 로그인 성공', tag: 'AUTH');
+        final customer = await _authService.getUserInfo();
+        await _handleLoginSuccess(customer);
+        Logger.i('✅ 자동 로그인 및 정보 복구 성공: ${customer.custNm}', tag: 'AUTH');
       } else {
         _isLoggedIn = false;
         Logger.w('❌ 토큰 없음 - 로그인 필요', tag: 'AUTH');
@@ -125,13 +128,8 @@ class AuthViewModel with ChangeNotifier {
   }
 
   // 공통 로그인 처리 로직 (Google, Kakao 등에서 호출)
-  Future<void> _handleLoginSuccess(AuthResponse authResponse) async {
-    await _tokenManager.saveAccessToken(authResponse.accessToken);
-    await _tokenManager.saveRefreshToken(authResponse.refreshToken);
-
-    _userName = authResponse.custNm;
-    _userEmail = authResponse.custEmail;
-    _custSeq = authResponse.custSeq;
+  Future<void> _handleLoginSuccess(CustomerModel customer) async {
+    _customer = customer;
 
     // 로그인 성공 후 약관 동의 여부 체크
     try {
@@ -185,8 +183,8 @@ class AuthViewModel with ChangeNotifier {
         platform: _getPlatformName(),
       );
 
-      final AuthResponse authResponse = await _authService.socialLogin(requestVo);
-      await _handleLoginSuccess(authResponse);
+      final CustomerModel customer = await _authService.socialLogin(requestVo);
+      await _handleLoginSuccess(customer);
 
       Logger.i('✅ Google 로그인 완료', tag: 'AUTH');
     } catch (error, stackTrace) {
@@ -263,8 +261,8 @@ class AuthViewModel with ChangeNotifier {
         platform: _getPlatformName(),
       );
 
-      final AuthResponse authResponse = await _authService.socialLogin(requestVo);
-      await _handleLoginSuccess(authResponse);
+      final CustomerModel customer = await _authService.socialLogin(requestVo);
+      await _handleLoginSuccess(customer);
 
       Logger.i('✅ Kakao 로그인 완료', tag: 'AUTH');
     } catch (error, stackTrace) {
@@ -278,15 +276,75 @@ class AuthViewModel with ChangeNotifier {
     }
   }
 
+  /// Apple 로그인
+  Future<void> signInWithApple() async {
+    Logger.section('Apple 로그인');
+
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+      );
+
+      Logger.i('Apple 계정 인증 성공', tag: 'AUTH');
+
+      // identityToken이 백엔드 검증에 사용됩니다.
+      final String? idToken = credential.identityToken;
+      if (idToken == null) {
+        throw Exception('Apple identityToken을 가져올 수 없습니다.');
+      }
+
+      final String? fcmToken = await _fcmService.getToken();
+      final String deviceId = await _deviceService.getDeviceId();
+
+      String? userName;
+      if (credential.givenName != null || credential.familyName != null) {
+        userName = "${credential.familyName ?? ''}${credential.givenName ?? ''}";
+      }
+
+      final String? userEmail = credential.email;
+
+      // 백엔드 요청 객체 생성
+      final requestVo = SocialLoginRequest(
+        provider: "APPLE",
+        token: idToken,
+        fcmToken: fcmToken,
+        deviceId: deviceId,
+        appName: 'curemate',
+        platform: _getPlatformName(),
+        name: userName,
+        email: userEmail,
+      );
+
+      final CustomerModel customer = await _authService.socialLogin(requestVo);
+      await _handleLoginSuccess(customer);
+
+      Logger.i('✅ Apple 로그인 완료', tag: 'AUTH');
+
+    } catch (error, stackTrace) {
+      _errorMessage = 'Apple 로그인 실패: ${error.toString()}';
+      _isLoggedIn = false;
+      Logger.e('Apple 로그인 에러', tag: 'AUTH', error: error, stackTrace: stackTrace);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+      Logger.sectionEnd();
+    }
+  }
+
   /// 로그아웃
   Future<void> signOut() async {
     try {
       await _googleSignIn.signOut();
       await _tokenManager.deleteToken();
       _isLoggedIn = false;
-      _userName = null;
-      _userEmail = null;
-      _custSeq = null;
+      _customer = null;
       _errorMessage = null;
       notifyListeners();
     } catch (error) {
@@ -314,19 +372,54 @@ class AuthViewModel with ChangeNotifier {
   Future<void> completeTermsAgreement(List<int> agreedIds) async {
     _isLoading = true;
     notifyListeners();
-    try {
-      // ✅ TermsService 사용
-      // await _termsService.submitTermsAgreement(
-      //     locationAgreed: loc,
-      //     marketingAgreed: mkt
-      // );
 
+    try {
+      final int? custSeq = _customer?.custSeq;
+
+      if (custSeq == null) {
+        throw Exception('사용자 정보를 찾을 수 없습니다.');
+      }
+
+      // API 요청 데이터 생성
+      // 전체 정책 목록(_policies)을 순회하며 동의 여부(Y/N)를 매핑합니다.
+      // agreedIds에 포함되어 있으면 'Y', 없으면 'N'
+      List<Map<String, dynamic>> consentList = _policies.map((policy) {
+        return {
+          "custSeq": custSeq,
+          "consentIndCmcd": policy.policyTypeCmcd, // 예: "ServicePolicy"
+          "policySeq": policy.policySeq,           // 예: 1
+          "consentYn": agreedIds.contains(policy.policySeq) ? "Y" : "N",
+        };
+      }).toList();
+
+      // 서비스 호출
+      await _termsService.submitTermsAgreement(consentList);
+
+      // 성공 시 약관 동의 필요 상태 해제 -> 라우터가 이를 감지하여 메인으로 이동
       _needsTermsAgreement = false;
+
     } catch (e) {
-      _errorMessage = '약관 동의 처리 실패: $e';
+      _errorMessage = '약관 동의 처리에 실패했습니다: $e';
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  /// 사용자조회
+  Future<void> fetchUserInfo() async {
+    try {
+      // AuthService의 getUserInfo()를 재사용
+      final updatedCustomer = await _authService.getUserInfo();
+
+      // 내부 상태 갱신
+      _customer = updatedCustomer;
+      notifyListeners(); // 구독 중인 모든 화면(헤더, 마이페이지 등) 갱신 알림
+
+      Logger.i('회원 정보 갱신 완료: ${updatedCustomer.custNm}', tag: 'AUTH');
+    } catch (e) {
+      Logger.e('회원 정보 갱신 실패', tag: 'AUTH', error: e);
+      // 필요하다면 에러 처리 (예: 토스트 메시지)
     }
   }
 

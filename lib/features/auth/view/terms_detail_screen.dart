@@ -1,13 +1,15 @@
 // lib/features/auth/view/terms_detail_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:flutter_html/flutter_html.dart';
-import '../../../app/theme/app_colors.dart';
-import '../../../services/terms_service.dart';
-import '../model/policy_model.dart';
+import 'package:curemate/app/theme/app_colors.dart';
+import 'package:curemate/services/terms_service.dart';
+import 'package:curemate/features/auth/model/policy_model.dart';
+import 'package:curemate/features/auth/viewmodel/auth_viewmodel.dart';
 
 class TermsDetailScreen extends StatefulWidget {
-  final int initialPolicySeq; // ✅ 활성화할 약관 ID (쿼리 파라미터로 받음)
+  final int initialPolicySeq; // 활성화할 약관 ID (쿼리 파라미터로 받음)
 
   const TermsDetailScreen({
     super.key,
@@ -29,27 +31,48 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> with TickerProvid
   @override
   void initState() {
     super.initState();
-    _loadPolicies();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadPolicies();
+    });
   }
 
-  // ✅ API 호출하여 약관 목록 로드
+  // API 호출하여 약관 목록 로드
   Future<void> _loadPolicies() async {
+    // 1. AuthViewModel에서 custSeq 가져오기
+    final authViewModel = context.read<AuthViewModel>();
+    final int? custSeq = authViewModel.custSeq;
+
+    if (custSeq == null) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = '사용자 정보를 찾을 수 없습니다.';
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
     try {
-      final policies = await _termsService.getPolicyList();
+      // 2. custSeq 전달 및 isDetail: true 설정 (상세 내용 포함 조회)
+      final allPolicies = await _termsService.getPolicyList(isDetail: true);
+
+      final List<PolicyModel> validPolicies = allPolicies.where((policy) {
+        return policy.policyDesc != null && policy.policyDesc!.trim().isNotEmpty;
+      }).toList();
 
       if (mounted) {
         setState(() {
-          _policies = policies;
+          _policies = validPolicies;
           _isLoading = false;
 
           // 탭 컨트롤러 초기화
-          if (policies.isNotEmpty) {
+          if (_policies.isNotEmpty) {
             // 전달받은 ID에 해당하는 인덱스 찾기
-            int initialIndex = policies.indexWhere((p) => p.policySeq == widget.initialPolicySeq);
+            int initialIndex = _policies.indexWhere((p) => p.policySeq == widget.initialPolicySeq);
             if (initialIndex == -1) initialIndex = 0; // 못 찾으면 첫 번째
 
             _tabController = TabController(
-              length: policies.length,
+              length: _policies.length,
               vsync: this,
               initialIndex: initialIndex,
             );

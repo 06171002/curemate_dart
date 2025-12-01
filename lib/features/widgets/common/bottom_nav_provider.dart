@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:curemate/features/cure_room/model/curer_model.dart'; // 모델 import
 
 class BottomNavProvider with ChangeNotifier {
   int _currentIndex = 0;
 
-  // 모드 상태 관리 (null이면 메인 모드, 값이 있으면 환자 모드)
-  int? _patientId;
-  Map<String, dynamic>? _patientInfo; // 선택된 환자 정보 (이름, 성별 등)
+  // 모드 상태 관리 (null이면 메인 모드, 값이 있으면 큐어룸 모드)
+  CurerModel? _selectedCurer;
 
   int get currentIndex => _currentIndex;
-  int? get patientId => _patientId;
-  Map<String, dynamic>? get patientInfo => _patientInfo;
+  CurerModel? get selectedCurer => _selectedCurer;
+
+  // 편의용 getter
+  int? get cureSeq => _selectedCurer?.cureSeq;
+  String? get cureName => _selectedCurer?.cureNm;
 
   // 현재 모드 확인 Helper
-  bool get isMainMode => _patientId == null;
-  bool get isPatientMode => _patientId != null;
+  bool get isMainMode => _selectedCurer == null;
+  bool get isCureMode => _selectedCurer != null;
 
   // 탭 변경 (순수하게 인덱스만 변경)
   void changeIndex(int index) {
@@ -21,17 +24,21 @@ class BottomNavProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // 환자 선택 (모드 전환)
-  void selectPatient(int id, Map<String, dynamic> info) {
-    _patientId = id;
-    _patientInfo = info;
+  // 큐어룸 선택 (모드 전환)
+  void selectCurer(CurerModel curer) {
+    _selectedCurer = curer;
     notifyListeners();
   }
 
-  // 메인 모드로 복귀 (환자 정보 초기화)
-  void clearPatient() {
-    _patientId = null;
-    _patientInfo = null;
+  // 메인 모드로 복귀 (큐어룸 정보 초기화)
+  void clearCurer() {
+    _selectedCurer = null;
+    notifyListeners();
+  }
+
+  void reset() {
+    _currentIndex = 0;
+    _selectedCurer = null;
     notifyListeners();
   }
 }

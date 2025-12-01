@@ -48,7 +48,7 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
   // --- ▼▼▼ 3. 일정 데이터를 불러오는 함수 추가 ▼▼▼ ---
   Future<void> _fetchSchedulesForDay(DateTime day) async {
     // 현재 선택된 환자 ID 가져오기
-    final patientId = Provider.of<BottomNavProvider>(context, listen: false).patientId;
+    final patientId = Provider.of<BottomNavProvider>(context, listen: false).cureSeq;
     if (patientId == null) {
       // 환자가 선택되지 않았으면 목록을 비우고 종료
       if (mounted) setState(() => _selectedDaySchedules = []);
@@ -90,7 +90,7 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
     // _selectedDay가 null일 경우를 대비하여 기본값(오늘 날짜)을 사용
     final DateTime dateToSend = _selectedDay ?? DateTime.now();
     final nav = Provider.of<BottomNavProvider>(context, listen: false);
-    final patientId = nav.patientId;
+    final patientId = nav.cureSeq;
 
     if (patientId == null) {
       // 사용자에게 환자를 먼저 선택하라는 메시지를 보여줍니다.
@@ -106,7 +106,6 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
       MaterialPageRoute(
         builder: (context) => NewScheduleScreen(
           selectedDateFromPreviousScreen: dateToSend,
-          patientId: patientId,
         ),
       ),
     ).then((result) {
@@ -132,7 +131,7 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
 
   void _navigateToEditScheduleScreen(Map<String, dynamic> scheduleData) {
     final nav = Provider.of<BottomNavProvider>(context, listen: false);
-    final patientId = nav.patientId;
+    final patientId = nav.cureSeq;
 
     if (patientId == null) {
       // 사용자에게 환자를 먼저 선택하라는 메시지를 보여줍니다.
@@ -147,7 +146,6 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
       MaterialPageRoute(
         builder: (context) => NewScheduleScreen(
           selectedDateFromPreviousScreen: _selectedDay!,
-          patientId: patientId, // 현재 환자 ID 전달
           existingSchedule: scheduleData, // ★ 기존 일정 데이터를 전달
         ),
       ),
