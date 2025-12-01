@@ -29,10 +29,16 @@ class PatientService {
   /// 환자 목록 조회 API
   Future<List<dynamic>> getPatients() async {
     try {
-      final Response response = await _apiService.get('/api/patients');
+      final Response response = await _apiService.post('/rest/cure/patientList', data: {
+        "param": {}
+      },);
 
       if (response.statusCode == 200) {
-        return response.data as List<dynamic>;
+        if (response.data['data'] != null) {
+          return response.data['data'] as List<dynamic>;
+        } else {
+          return []; // 데이터가 없으면 빈 리스트 반환
+        }
       } else {
         throw Exception('환자 조회 실패: ${response.data}');
       }

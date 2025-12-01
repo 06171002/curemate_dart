@@ -35,24 +35,34 @@ class _CalendarWidgetState extends State<CalendarWidget> {
         onDaySelected: widget.onDaySelected,
         locale: 'ko_KR',
         calendarFormat: widget.calendarFormat,
+        daysOfWeekStyle: const DaysOfWeekStyle(
+          weekendStyle: TextStyle(color: Colors.red, fontSize: 14), // 폰트 크기 14로 축소
+          weekdayStyle: TextStyle(fontSize: 14),
+        ),
+
+        // [수정 3] 날짜 부분 폰트 크기 축소 (18 -> 14~16 권장)
         calendarStyle: CalendarStyle(
           todayDecoration: BoxDecoration(
-            color: primaryColor.withOpacity(0.3), // primaryColor 정의 필요
+            color: primaryColor.withOpacity(0.3),
             shape: BoxShape.circle,
           ),
           selectedDecoration: BoxDecoration(
-            color: primaryColor, // primaryColor 정의 필요
+            color: primaryColor,
             shape: BoxShape.circle,
           ),
-          defaultTextStyle: TextStyle(fontSize: 18),
-          weekendTextStyle: TextStyle(fontSize: 18, color: Colors.red),
-          todayTextStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          selectedTextStyle: TextStyle(fontSize: 18, color: Colors.white),
+          // 폰트 크기를 18에서 14~15 정도로 줄여야 작은 폰에서도 안 잘립니다.
+          defaultTextStyle: const TextStyle(fontSize: 14),
+          weekendTextStyle: const TextStyle(fontSize: 14, color: Colors.red),
+          todayTextStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+          selectedTextStyle: const TextStyle(fontSize: 14, color: Colors.white),
+
+          // 셀 내부 여백 조정 (글자가 클 경우 여백 때문에 잘릴 수 있음)
+          cellMargin: const EdgeInsets.all(4.0),
         ),
         headerStyle: const HeaderStyle(
           formatButtonVisible: false,
           titleCentered: true,
-          titleTextStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.bold), // 헤더도 살짝 줄임
         ),
       ),
     );

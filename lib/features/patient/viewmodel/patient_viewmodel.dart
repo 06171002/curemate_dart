@@ -89,8 +89,25 @@ class PatientViewModel with ChangeNotifier {
     notifyListeners();
 
     try {
-      final result = await _patientService.getPatients();
-      _patients = result;
+      // 1. 서비스에서 원본 데이터 리스트 가져오기
+      final List<dynamic> rawList = await _patientService.getPatients();
+
+      // 2. ✅ [핵심 수정] UI에서 사용하는 키 이름으로 변환 (Mapping)
+      _patients = rawList.map((item) {
+        return {
+          // 화면(드롭다운 등)에서 사용하는 키 : 서버에서 내려준 키
+          'patient_id': item['curePatientSeq'],
+          'name': item['patientNm'],
+
+          // 필요하다면 아래 정보들도 추가 매핑
+          'birth': item['patientBirthday'],
+          'gender': item['patientGenderCmnm'],
+          'cure_seq': item['cureSeq'],
+          // 원본 데이터도 유지하고 싶다면
+          ...item,
+        };
+      }).toList();
+
       _errorMessage = null;
     } on DioException catch (dioErr) {
       final data = dioErr.response?.data;
@@ -99,8 +116,10 @@ class PatientViewModel with ChangeNotifier {
       } else {
         _errorMessage = dioErr.message ?? '네트워크 오류가 발생했습니다.';
       }
+      _patients = []; // 에러 시 초기화
     } catch (e) {
       _errorMessage = e.toString();
+      _patients = []; // 에러 시 초기화
     } finally {
       _isLoading = false;
       notifyListeners();
