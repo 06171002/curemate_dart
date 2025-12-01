@@ -26,7 +26,25 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
   // --- 상태 변수 ---
   int? _selectedPatientId;
   String _selectedScheduleType = '진료';
-  final List<String> _scheduleTypes = ['진료', '검사', '상담', '재활', '기타'];
+  final List<String> _scheduleTypes = ['진료', '복약', '검사', '기타'];
+  DateTime? _selectedDate;
+  String? _selectedTime;
+  String _repeatOption = '반복 없음';
+  late DateTime _startDate;
+  late DateTime _endDate;
+  late String _startTime;
+  late String _endTime;
+  bool _isAllDay = false; // 종일 여부
+
+  // 30분 단위 시간 리스트 생성 (00:00 ~ 23:30)
+  final List<String> _timeOptions = List.generate(48, (index) {
+    final hour = index ~/ 2;
+    final minute = (index % 2) * 30;
+    return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+  });
+
+// 반복 주기 옵션 리스트
+  final List<String> _repeatOptions = ['반복 없음', '매일', '매주', '매월', '매년'];
 
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _titleController = TextEditingController();
@@ -41,8 +59,6 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
 
   // 옵션들
   bool _isPublic = true;
-  String _repeatOption = '반복 없음';
-  final List<String> _repeatOptions = ['반복 없음', '매일', '매주', '매월'];
 
   // 알람 관련
   bool _isAlarmOn = false;
@@ -63,28 +79,36 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
     // 환자 목록 불러오기 및 헤더 설정
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<PatientViewModel>().fetchPatients();
-      if (mounted) {
-        final header = Provider.of<HeaderProvider>(context, listen: false);
-        header.setTitle(_isEditing ? '일정 수정' : '새 일정 추가');
-        header.setShowBackButton(true);
-        header.setSettingButton(false);
-      }
     });
+
+    final now = DateTime.now();
 
     // 초기 데이터 설정
     if (_isEditing) {
       _initEditData();
     } else {
-      // 새 일정: 이전 화면에서 선택한 날짜 + 현재 시간 조합
-      final now = DateTime.now();
-      _selectedDateTime = DateTime(
-        widget.selectedDateFromPreviousScreen.year,
-        widget.selectedDateFromPreviousScreen.month,
-        widget.selectedDateFromPreviousScreen.day,
-        now.hour,
-        now.minute,
-      );
+      _startDate = widget.selectedDateFromPreviousScreen;
+      _endDate = widget.selectedDateFromPreviousScreen;
+
+      // 시간 기본값: 현재 시간(30분 단위 절삭) ~ 1시간 뒤
+      int minute = now.minute >= 30 ? 30 : 0;
+      final startDt = DateTime(now.year, now.month, now.day, now.hour, minute);
+      final endDt = startDt.add(const Duration(hours: 1));
+
+      _startTime = "${startDt.hour.toString().padLeft(2, '0')}:${startDt.minute.toString().padLeft(2, '0')}";
+      _endTime = "${endDt.hour.toString().padLeft(2, '0')}:${endDt.minute.toString().padLeft(2, '0')}";
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    // 화면이 그려지기 직전에 헤더 정보를 업데이트합니다.
+    final header = Provider.of<HeaderProvider>(context, listen: false);
+    header.setTitle(_isEditing ? '일정 수정' : '새 일정 추가');
+    header.setShowBackButton(true);
+    header.setSettingButton(false);
   }
 
   void _initEditData() {
@@ -93,19 +117,28 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
     _contentController.text = schedule['content'] ?? '';
     _selectedScheduleType = schedule['schedule_type'] ?? '진료';
 
-    // DB 데이터(문자열)를 DateTime으로 파싱
+    // [변경] 날짜와 시간을 분리해서 저장
     try {
-      final datePart = DateTime.parse(schedule['schedule_date']);
-      final timeParts = (schedule['schedule_time'] as String).split(':');
-      _selectedDateTime = DateTime(
-        datePart.year,
-        datePart.month,
-        datePart.day,
-        int.parse(timeParts[0]),
-        int.parse(timeParts[1]),
-      );
+      _startDate = DateTime.parse(schedule['start_date']);
+      _endDate = DateTime.parse(schedule['end_date']);
+
+      // 종일 일정 여부 확인 (DB에 isAllDay 컬럼이 있다고 가정)
+      _isAllDay = schedule['isAllDay'] == 1 || schedule['isAllDay'] == true;
+
+      if (!_isAllDay) {
+        _startTime = schedule['start_time'] ?? "09:00";
+        _endTime = schedule['end_time'] ?? "10:00";
+      } else {
+        // 종일일 경우 시간은 임의값 설정
+        _startTime = "00:00";
+        _endTime = "23:59";
+      }
     } catch (e) {
-      _selectedDateTime = DateTime.now(); // 파싱 실패 시 현재 시간
+      // 파싱 실패 시 기본값
+      _startDate = DateTime.now();
+      _endDate = DateTime.now();
+      _startTime = "09:00";
+      _endTime = "10:00";
     }
 
     if (schedule.containsKey('patient_id')) {
@@ -125,29 +158,36 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
     super.dispose();
   }
 
-  // --- 하단 모달 (알람 종류/시간 선택용) ---
+  // --- 하단 모달 (알람 종류/시간 선택용) - 수정됨 ---
   void _showSelectionModal(String title, List<String> options, String currentVal, Function(String) onSelected) {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      isScrollControlled: true, // 높이 유동적
       builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-              ),
-              ...options.map((option) => ListTile(
-                title: Text(option),
-                trailing: option == currentVal ? const Icon(Icons.check, color: AppColors.mainBtn) : null,
-                onTap: () {
-                  onSelected(option);
-                  Navigator.pop(context);
-                },
-              )),
-            ],
+        return SingleChildScrollView( // [중요] 스크롤 추가
+          child: Container(
+            padding: EdgeInsets.only(
+                top: 16,
+                bottom: MediaQuery.of(context).padding.bottom + 16 // 하단 안전 영역 확보
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16.0),
+                  child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                ),
+                ...options.map((option) => ListTile(
+                  title: Text(option),
+                  trailing: option == currentVal ? const Icon(Icons.check, color: AppColors.mainBtn) : null,
+                  onTap: () {
+                    onSelected(option);
+                    Navigator.pop(context);
+                  },
+                )),
+              ],
+            ),
           ),
         );
       },
@@ -170,15 +210,18 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
       String content = _contentController.text;
 
       // DateTime에서 날짜(yyyy-MM-dd)와 시간(HH:mm) 포맷팅
-      String date = DateFormat('yyyy-MM-dd').format(_selectedDateTime);
-      String time = DateFormat('HH:mm').format(_selectedDateTime);
+      String startDateStr = DateFormat('yyyy-MM-dd').format(_startDate);
+      String endDateStr = DateFormat('yyyy-MM-dd').format(_endDate);
 
       final Map<String, dynamic> scheduleData = {
         'title': title,
         'content': content,
         'scheduleType': _selectedScheduleType,
-        'scheduleDate': date,
-        'scheduleTime': time,
+        'startDate': startDateStr, // 시작일
+        'endDate': endDateStr,     // 종료일
+        'isAllDay': _isAllDay,     // 종일 여부
+        'startTime': _isAllDay ? null : _startTime, // 종일이면 시간 null 혹은 무시
+        'endTime': _isAllDay ? null : _endTime,
         'isPublic': _isPublic,
         'repeatOption': _repeatOption,
         'isAlarmOn': _isAlarmOn,
@@ -216,6 +259,115 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
 
   void _deleteSchedule() async {
     // 삭제 로직 (필요 시 구현)
+  }
+
+  // 날짜 선택 (isStart: 시작일인지 여부)
+  Future<void> _pickDate(bool isStart) async {
+    final DateTime initial = isStart ? _startDate : _endDate;
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+
+    if (picked != null) {
+      setState(() {
+        if (isStart) {
+          _startDate = picked;
+          // 시작일이 종료일보다 늦으면 종료일도 시작일로 맞춤
+          if (_startDate.isAfter(_endDate)) {
+            _endDate = picked;
+          }
+        } else {
+          _endDate = picked;
+          // 종료일이 시작일보다 빠르면 시작일도 종료일로 맞춤
+          if (_endDate.isBefore(_startDate)) {
+            _startDate = picked;
+          }
+        }
+      });
+    }
+  }
+
+  // 2. 시간 선택 (30분 단위 바텀 시트) - 수정됨
+  void _pickTime(bool isStart) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Container(
+          height: 300, // 고정 높이 설정
+          padding: const EdgeInsets.only(top: 20),
+          child: Column(
+            children: [
+              Text(isStart ? "시작 시간" : "종료 시간", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              const SizedBox(height: 10),
+              Expanded( // [중요] 남은 공간을 리스트뷰가 모두 차지하도록 함
+                child: ListView.builder(
+                  itemCount: _timeOptions.length,
+                  itemBuilder: (context, index) {
+                    return ListTile(
+                      title: Center(child: Text(_timeOptions[index])),
+                      onTap: () {
+                        setState(() {
+                          if (isStart) {
+                            _startTime = _timeOptions[index];
+                          } else {
+                            _endTime = _timeOptions[index];
+                          }
+                        });
+                        Navigator.pop(context);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // 3. 반복 주기 선택 (바텀 시트) - 수정됨
+  void _pickRepeat() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      isScrollControlled: true, // 내용에 따라 높이 유동적 조절
+      builder: (context) {
+        return SingleChildScrollView( // [중요] 스크롤 가능하게 변경
+          child: Container(
+            // SafeArea를 적용하여 하단 네비게이션 바와 겹치지 않게 함
+            padding: EdgeInsets.only(
+                top: 20,
+                bottom: MediaQuery.of(context).padding.bottom + 20
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text("반복 설정", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                const SizedBox(height: 10),
+                ..._repeatOptions.map((option) => ListTile(
+                  title: Center(child: Text(option)),
+                  onTap: () {
+                    setState(() {
+                      _repeatOption = option;
+                    });
+                    Navigator.pop(context);
+                  },
+                )).toList(),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -310,105 +462,139 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
                     // 4. 상세 설정 (공개/날짜/반복/알람)
                     _buildSectionLabel('상세 설정'),
                     Container(
-                      decoration: _boxDecoration(),
+                      width: double.infinity,
+                      decoration: _boxDecoration(), // 기존 섹션들과 동일한 디자인 적용
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // 공개 여부
-                          SwitchListTile(
-                            title: const Text('공개 여부'),
-                            value: _isPublic,
-                            activeColor: AppColors.mainBtn,
-                            onChanged: (val) => setState(() => _isPublic = val),
-                            secondary: const Icon(Icons.visibility, color: Colors.grey),
-                          ),
-                          _buildDivider(),
-
-                          // --- 날짜 및 시간 (인라인 피커) ---
-                          ListTile(
-                            leading: const Icon(Icons.calendar_today, color: Colors.grey),
-                            title: const Text('날짜 및 시간'),
-                            trailing: Text(
-                              DateFormat('yyyy.MM.dd (E) HH:mm', 'ko_KR').format(_selectedDateTime),
-                              style: const TextStyle(color: AppColors.mainBtn, fontWeight: FontWeight.bold),
-                            ),
-                            onTap: () {
-                              setState(() {
-                                _isDateExpanded = !_isDateExpanded;
-                                if (_isDateExpanded) _isRepeatExpanded = false; // 다른 피커 닫기
-                              });
-                            },
-                          ),
-                          if (_isDateExpanded)
-                            SizedBox(
-                              height: 200,
-                              child: CupertinoDatePicker(
-                                mode: CupertinoDatePickerMode.dateAndTime,
-                                initialDateTime: _selectedDateTime,
-                                onDateTimeChanged: (DateTime newDateTime) {
-                                  setState(() => _selectedDateTime = newDateTime);
-                                },
-                                use24hFormat: true,
-                              ),
-                            ),
-
-                          _buildDivider(),
-
-                          // --- 반복 주기 (인라인 리스트) ---
-                          ListTile(
-                            leading: const Icon(Icons.repeat, color: Colors.grey),
-                            title: const Text('반복 주기'),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
+                          // [상단 영역] 날짜, 시간, 반복 설정 (여백 필요)
+                          Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Column(
                               children: [
-                                Text(_repeatOption, style: const TextStyle(color: Colors.grey)),
-                                const SizedBox(width: 4),
-                                Icon(_isRepeatExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.grey),
+                                // (1) 날짜 선택 (시작 ~ 종료)
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _buildSelectionBox(
+                                        label: "시작일",
+                                        value: "${_startDate.year}.${_startDate.month}.${_startDate.day}",
+                                        hint: "시작일",
+                                        icon: Icons.calendar_today_outlined,
+                                        onTap: () => _pickDate(true),
+                                      ),
+                                    ),
+                                    const Padding(
+                                      padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 24),
+                                      child: Text("~", style: TextStyle(fontSize: 20, color: Colors.grey)),
+                                    ),
+                                    Expanded(
+                                      child: _buildSelectionBox(
+                                        label: "종료일",
+                                        value: "${_endDate.year}.${_endDate.month}.${_endDate.day}",
+                                        hint: "종료일",
+                                        icon: Icons.calendar_today_outlined,
+                                        onTap: () => _pickDate(false),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+
+                                // (2) 종일 체크박스
+                                Row(
+                                  children: [
+                                    SizedBox(
+                                      height: 24,
+                                      width: 24,
+                                      child: Checkbox(
+                                        value: _isAllDay,
+                                        activeColor: AppColors.mainBtn,
+                                        onChanged: (val) {
+                                          setState(() {
+                                            _isAllDay = val ?? false;
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text("종일 설정", style: TextStyle(fontSize: 14)),
+                                  ],
+                                ),
+
+                                // (3) 시간 선택 (종일 아닐 때만 노출)
+                                if (!_isAllDay) ...[
+                                  const SizedBox(height: 16),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _buildSelectionBox(
+                                          label: "시작 시간",
+                                          value: _startTime,
+                                          hint: "00:00",
+                                          icon: Icons.access_time,
+                                          onTap: () => _pickTime(true),
+                                        ),
+                                      ),
+                                      const Padding(
+                                        padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 24),
+                                        child: Text("~", style: TextStyle(fontSize: 20, color: Colors.grey)),
+                                      ),
+                                      Expanded(
+                                        child: _buildSelectionBox(
+                                          label: "종료 시간",
+                                          value: _endTime,
+                                          hint: "00:00",
+                                          icon: Icons.access_time,
+                                          onTap: () => _pickTime(false),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+
+                                const SizedBox(height: 24),
+
+                                // (4) 반복 설정
+                                _buildSelectionBox(
+                                  label: "반복",
+                                  value: _repeatOption,
+                                  hint: "반복 주기를 선택하세요",
+                                  icon: Icons.repeat,
+                                  onTap: _pickRepeat,
+                                ),
                               ],
                             ),
-                            onTap: () {
-                              setState(() {
-                                _isRepeatExpanded = !_isRepeatExpanded;
-                                if (_isRepeatExpanded) _isDateExpanded = false;
-                              });
-                            },
                           ),
-                          if (_isRepeatExpanded)
-                            Container(
-                              color: Colors.grey[50], // 하위 메뉴 배경색 구분
-                              child: Column(
-                                children: _repeatOptions.map((option) {
-                                  return RadioListTile<String>(
-                                    title: Text(option, style: const TextStyle(fontSize: 14)),
-                                    value: option,
-                                    groupValue: _repeatOption,
-                                    activeColor: AppColors.mainBtn,
-                                    dense: true,
-                                    onChanged: (val) {
-                                      setState(() {
-                                        _repeatOption = val!;
-                                        // _isRepeatExpanded = false; // 선택 후 닫으려면 주석 해제
-                                      });
-                                    },
-                                  );
-                                }).toList(),
-                              ),
-                            ),
+
+                          // 구분선 (상단 설정과 하단 토글 설정 분리)
+                          _buildDivider(),
+
+                          // (5) 공개 여부
+                          SwitchListTile(
+                            title: const Text('공개 여부', style: TextStyle(fontSize: 14)),
+                            value: _isPublic,
+                            activeColor: AppColors.mainBtn,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                            onChanged: (val) => setState(() => _isPublic = val),
+                            secondary: const Icon(Icons.visibility_outlined, color: Colors.grey),
+                          ),
 
                           _buildDivider(),
 
-                          // --- 알람 설정 (토글) ---
+                          // (6) 알람 설정
                           SwitchListTile(
-                            title: const Text('알람 설정'),
+                            title: const Text('알람 설정', style: TextStyle(fontSize: 14)),
                             value: _isAlarmOn,
                             activeColor: AppColors.mainBtn,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                             onChanged: (val) => setState(() => _isAlarmOn = val),
                             secondary: const Icon(Icons.notifications_none, color: Colors.grey),
                           ),
 
-                          // 알람 켜졌을 때만 보이는 하위 옵션
+                          // 알람 세부 옵션 (켜졌을 때만 표시)
                           if (_isAlarmOn) ...[
                             _buildDivider(),
-                            // 알람 종류
                             ListTile(
                               contentPadding: const EdgeInsets.only(left: 56, right: 16),
                               title: const Text('알람 종류', style: TextStyle(fontSize: 14)),
@@ -423,7 +609,6 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
                               onTap: () => _showSelectionModal('알람 종류 선택', _alarmTypes, _alarmType, (val) => setState(() => _alarmType = val)),
                             ),
                             _buildDivider(),
-                            // 알람 시간
                             ListTile(
                               contentPadding: const EdgeInsets.only(left: 56, right: 16),
                               title: const Text('알람 시간', style: TextStyle(fontSize: 14)),
@@ -495,5 +680,46 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
 
   Widget _buildDivider() {
     return const Divider(height: 1, thickness: 1, indent: 16, endIndent: 16, color: Color(0xFFF0F0F0));
+  }
+
+  // 공통 디자인의 선택 박스 위젯 (메서드로 분리)
+  Widget _buildSelectionBox({
+    required String label,
+    required String value,
+    required String hint,
+    required VoidCallback onTap,
+    required IconData icon,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)), // 라벨
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: onTap, // 클릭 시 실행될 함수
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade400), // 테두리 색상
+              borderRadius: BorderRadius.circular(8), // 둥근 모서리
+              color: Colors.white, // 배경색
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  value.isEmpty ? hint : value,
+                  style: TextStyle(
+                    color: value.isEmpty ? Colors.grey : Colors.black,
+                    fontSize: 16,
+                  ),
+                ),
+                Icon(icon, color: Colors.grey),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
