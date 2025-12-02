@@ -28,6 +28,13 @@ class CalendarService {
 
     final String typeCode = _mapTypeToCode(inputData['scheduleType']);
 
+    // 2. [추가] 스케줄 반복 타입(daily, weekly 등) 매핑
+    final String scheduleRepeatCode = _mapRepeatToScheduleType(inputData['repeatOption']);
+
+    // 3. [추가] 반복 여부(Y/N) 설정 (반복 없음이면 N, 나머지는 Y)
+    //    만약 '매일'도 반복으로 본다면 '반복 없음'만 N으로 처리
+    final String repeatYn = inputData['repeatOption'] == '반복 없음' ? 'N' : 'Y';
+
     // 날짜+시간 합치기 (YYYY-MM-DD HH:mm:ss 형태 권장)
     String startDttm = "${inputData['startDate']} ${inputData['startTime']}:00";
     String endDttm = "${inputData['endDate']} ${inputData['endTime']}:00";
@@ -53,7 +60,8 @@ class CalendarService {
           "cureScheduleStartDttm": startDttm,
           "cureScheduleEndDttm": endDttm,
           "cureScheduleDayYn": inputData['isAllDay'] ? "Y" : "N",
-          "cureScheduleRepeatYn": "N", // 반복 로직 구현 시 수정 필요
+          "cureScheduleRepeatYn": repeatYn, // 반복 로직 구현 시 수정 필요
+          "cureScheduleTypeCmcd": scheduleRepeatCode
         },
 
         // 3. 알람 정보 (t_cure_calendar_alram) - 리스트 형태
@@ -68,7 +76,7 @@ class CalendarService {
     };
 
     try {
-      final response = await _apiService.post('/rest/calendar/mergeCalendar', data: requestBody);
+      final response = await _apiService.post('/rest/calendar/mergeCalendarAll', data: requestBody);
 
       // 성공 처리 (필요시)
       if (response.statusCode != 200) {
@@ -78,6 +86,24 @@ class CalendarService {
       // 에러 로그 출력 또는 재던지기
       print("Create Schedule Error: $e");
       rethrow;
+    }
+  }
+
+  String _mapRepeatToScheduleType(String? option) {
+    if (option == null) return 'daily'; // 기본값
+
+    switch (option) {
+      case '반복 없음':
+      case '매일':
+        return 'daily';
+      case '매주':
+        return 'weekly';
+      case '매월':
+        return 'monthly';
+      case '매년':
+        return 'yearly';
+      default:
+        return 'daily';
     }
   }
 

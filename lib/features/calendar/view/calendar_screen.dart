@@ -43,17 +43,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
     setState(() {
       _events.clear();
 
-      for (var schedule in schedules) {
-        // 2. 날짜 파싱 및 매핑
-        // *주의*: 백엔드 응답 구조에 따라 키 이름('regDttm' vs 'scheduleStartDttm') 확인 필수
-        // 여기서는 임시로 regDttm을 사용하거나, 현재 로직을 유지합니다.
-        DateTime? evtDate;
+      for (var data in schedules) {
+        // 백엔드에서 내려준 구조에 따라 schedule 객체 접근
+        // resultMap을 사용했으므로 'schedule'이라는 키 안에 데이터가 들어옵니다.
+        final scheduleInfo = data['schedule'];
 
-        // 예시: 스케줄 시작 시간이 있다면 그것을 우선 사용
-        if (schedule['cureScheduleStartDttm'] != null) {
-          evtDate = DateTime.parse(schedule['cureScheduleStartDttm']);
-        } else if (schedule['regDttm'] != null) {
-          evtDate = DateTime.parse(schedule['regDttm']);
+        DateTime? evtDate;
+        if (scheduleInfo != null && scheduleInfo['cureScheduleStartDttm'] != null) {
+          evtDate = DateTime.parse(scheduleInfo['cureScheduleStartDttm']);
+        } else if (data['regDttm'] != null) {
+          // 스케줄 정보가 없을 때만 등록일시 사용 (예외처리)
+          evtDate = DateTime.parse(data['regDttm']);
         }
 
         if (evtDate != null) {
@@ -61,7 +61,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           final key = DateTime(evtDate.year, evtDate.month, evtDate.day);
 
           if (_events[key] == null) _events[key] = [];
-          _events[key]!.add(schedule);
+          _events[key]!.add(data);
         }
       }
     });
