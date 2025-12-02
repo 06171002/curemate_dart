@@ -46,6 +46,7 @@ class CalendarService {
         "cureCalendarNm": inputData['title'],    // 제목
         "cureCalendarDesc": inputData['content'],// 내용
         "releaseYn": "Y",                        // 공개 여부 (기본값)
+        "cureSeq": inputData['cureSeq'],
 
         // 2. 상세 스케줄 정보 (t_cure_calendar_schedule)
         "schedule": {
@@ -187,6 +188,37 @@ class CalendarService {
         throw data['error']; // 👈 문자열만 던짐
       }
       throw dioErr.message ?? '네트워크 오류가 발생했습니다.';
+    }
+  }
+
+  // [추가] 월별 일정 목록 조회 (특정 사용자 필터링 가능)
+  Future<List<Map<String, dynamic>>> getMonthlyScheduleList(DateTime date, {int? targetCustSeq}) async {
+    // 1. "YYYYMM" 형식으로 변환 (Backend Mapper가 이 형식을 기대함)
+    final String yearMonth = DateFormat('yyyyMM').format(date);
+
+    // 2. 요청 파라미터 구성
+    final Map<String, dynamic> requestBody = {
+      "param": {
+        "calendarMonth": yearMonth,
+        // targetCustSeq가 있으면 onlyCustSeq로 전달하여 해당 유저의 일정만 필터링
+        if (targetCustSeq != null) "onlyCustSeq": targetCustSeq,
+      }
+    };
+
+    try {
+      // 3. POST 요청 (/rest/calendar/selectCureCalendarList)
+      final response = await _apiService.post('/rest/calendar/selectCureCalendarList', data: requestBody);
+
+      // 4. 응답 처리 (ApiVo 구조에 따라 data 필드 추출)
+      if (response.statusCode == 200 && response.data['data'] != null) {
+        return List<Map<String, dynamic>>.from(response.data['data']);
+      } else {
+        return [];
+      }
+    } catch (e) {
+      print('월별 일정 조회 실패: $e');
+      // 필요 시 빈 리스트 반환 혹은 에러 rethrow
+      return [];
     }
   }
 }

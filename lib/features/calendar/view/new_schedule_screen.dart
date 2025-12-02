@@ -23,6 +23,7 @@ class NewScheduleScreen extends StatefulWidget {
 class _NewScheduleScreenState extends State<NewScheduleScreen> {
   // --- 상태 변수 ---
   int? _selectedPatientId;
+  int? _selectedCureSeq;
   String _selectedScheduleType = '진료';
   final List<String> _scheduleTypes = ['진료', '복약', '검사', '기타'];
 
@@ -323,6 +324,7 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
 
       if (!_isEditing) {
         scheduleData['patientId'] = _selectedPatientId;
+        scheduleData['cureSeq'] = _selectedCureSeq;
         await _calendarService.createSchedule(scheduleData);
       } else {
         final int scheduleSeq = widget.existingSchedule!['schedule_seq'];
@@ -400,7 +402,23 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
                       final String pName = patient['name'] ?? '이름 없음';
                       return DropdownMenuItem<int>(value: pId, child: Text(pName));
                     }).toList(),
-                    onChanged: (value) => setState(() => _selectedPatientId = value),
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedPatientId = value;
+
+                        // [추가] 선택된 환자 ID로 전체 객체 찾기
+                        final selectedPatient = patientViewModel.patients.firstWhere(
+                              (element) => (element['patient_id'] ?? element['id']) == value,
+                          orElse: () => {},
+                        );
+
+                        // [추가] cureSeq 추출 및 저장
+                        // (실제 API 응답 키값이 'cure_seq'인지 'cureSeq'인지 확인 필요, 보통 DB 컬럼명인 snake_case일 가능성이 높음)
+                        _selectedCureSeq = selectedPatient['cure_seq'] ?? selectedPatient['cureSeq'];
+
+                        print("Selected Patient ID: $_selectedPatientId, Cure Seq: $_selectedCureSeq"); // 디버깅용 로그
+                      });
+                    },
                   ),
                   const SizedBox(height: 24),
                 ],

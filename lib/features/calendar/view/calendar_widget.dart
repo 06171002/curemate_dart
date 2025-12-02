@@ -1,68 +1,78 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:curemate/features/widgets/common/widgets.dart';
+import 'package:curemate/app/theme/app_colors.dart'; // 색상 정의 파일
 
-class CalendarWidget extends StatefulWidget {
-  final Function(DateTime?, DateTime) onDaySelected;
+class CalendarWidget extends StatelessWidget {
+  final Function(DateTime, DateTime) onDaySelected;
+  final Function(DateTime) onPageChanged; // [추가] 월 변경 시 부모에게 알림
   final DateTime focusedDay;
   final DateTime? selectedDay;
   final CalendarFormat calendarFormat;
+  final Map<DateTime, List<Map<String, dynamic>>> events; // [추가] 외부에서 받는 이벤트 데이터
 
   const CalendarWidget({
     Key? key,
     required this.onDaySelected,
+    required this.onPageChanged,
     required this.focusedDay,
     this.selectedDay,
     required this.calendarFormat,
+    required this.events,
   }) : super(key: key);
 
-  @override
-  State<CalendarWidget> createState() => _CalendarWidgetState();
-}
-
-class _CalendarWidgetState extends State<CalendarWidget> {
   @override
   Widget build(BuildContext context) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOut,
-      color: Colors.white60,
+      color: Colors.white, // 배경색
       child: TableCalendar(
         firstDay: DateTime(2000),
         lastDay: DateTime(2100),
-        focusedDay: widget.focusedDay,
-        selectedDayPredicate: (day) => isSameDay(widget.selectedDay, day),
-        onDaySelected: widget.onDaySelected,
+        focusedDay: focusedDay,
+        selectedDayPredicate: (day) => isSameDay(selectedDay, day),
+        onDaySelected: onDaySelected,
+        onPageChanged: onPageChanged, // 월 변경 시 호출
         locale: 'ko_KR',
-        calendarFormat: widget.calendarFormat,
+        calendarFormat: calendarFormat,
+
+        // [이벤트 로더] 부모로부터 받은 events 맵을 사용하여 점 표시
+        eventLoader: (day) {
+          // 시/분/초를 제거한 날짜 키 생성
+          final key = DateTime(day.year, day.month, day.day);
+          return events[key] ?? [];
+        },
+
+        // 스타일 설정 (기존 코드 유지 및 보완)
         daysOfWeekStyle: const DaysOfWeekStyle(
-          weekendStyle: TextStyle(color: Colors.red, fontSize: 14), // 폰트 크기 14로 축소
+          weekendStyle: TextStyle(color: Colors.red, fontSize: 14),
           weekdayStyle: TextStyle(fontSize: 14),
         ),
-
-        // [수정 3] 날짜 부분 폰트 크기 축소 (18 -> 14~16 권장)
         calendarStyle: CalendarStyle(
           todayDecoration: BoxDecoration(
-            color: primaryColor.withOpacity(0.3),
+            color: AppColors.mainBtn.withOpacity(0.5), // AppColors 사용 권장
             shape: BoxShape.circle,
           ),
-          selectedDecoration: BoxDecoration(
-            color: primaryColor,
+          selectedDecoration: const BoxDecoration(
+            color: AppColors.mainBtn,
             shape: BoxShape.circle,
           ),
-          // 폰트 크기를 18에서 14~15 정도로 줄여야 작은 폰에서도 안 잘립니다.
           defaultTextStyle: const TextStyle(fontSize: 14),
           weekendTextStyle: const TextStyle(fontSize: 14, color: Colors.red),
           todayTextStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
           selectedTextStyle: const TextStyle(fontSize: 14, color: Colors.white),
-
-          // 셀 내부 여백 조정 (글자가 클 경우 여백 때문에 잘릴 수 있음)
           cellMargin: const EdgeInsets.all(4.0),
+
+          // 마커(점) 스타일
+          markerDecoration: const BoxDecoration(
+            color: Colors.redAccent, // 점 색상
+            shape: BoxShape.circle,
+          ),
         ),
         headerStyle: const HeaderStyle(
           formatButtonVisible: false,
           titleCentered: true,
-          titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.bold), // 헤더도 살짝 줄임
+          titleTextStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
       ),
     );
