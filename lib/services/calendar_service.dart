@@ -9,23 +9,115 @@ class CalendarService {
 
   CalendarService() : _apiService = ApiService();
 
-  // 일정추가
-  Future<Map<String, dynamic>> createSchedule(Map<String, dynamic> createSchedule) async {
-    try {
-      final Response response = await _apiService.post(
-        '/api/calendar/createSchedule',
-        data: createSchedule,
-      );
+  Future<void> createSchedule(Map<String, dynamic> inputData) async {
+    // inputData 예시:
+    // {
+    //   'patientId': 123,
+    //   'scheduleType': '진료',
+    //   'title': '감기 진료',
+    //   'content': '내과 방문',
+    //   'startDate': '2023-10-25',
+    //   'startTime': '09:00',
+    //   'endDate': '2023-10-25',
+    //   'endTime': '10:00',
+    //   'isAllDay': false,
+    //   'isAlarmOn': true,
+    //   'alarmType': 'push',
+    //   'alarmTime': '10분 전'
+    // }
 
-      // 정상 응답
-      return response.data as Map<String, dynamic>;
-    } on DioException catch (dioErr) {
-      // 서버가 내려준 에러 메시지 추출
-      final data = dioErr.response?.data;
-      if (data is Map && data['error'] != null) {
-        throw data['error']; // 👈 문자열만 던짐
+    final String typeCode = _mapTypeToCode(inputData['scheduleType']);
+
+    // 날짜+시간 합치기 (YYYY-MM-DD HH:mm:ss 형태 권장)
+    String startDttm = "${inputData['startDate']} ${inputData['startTime']}:00";
+    String endDttm = "${inputData['endDate']} ${inputData['endTime']}:00";
+
+    if (inputData['isAllDay'] == true) {
+      startDttm = "${inputData['startDate']} 00:00:00";
+      endDttm = "${inputData['endDate']} 23:59:59";
+    }
+
+    // 서버로 보낼 데이터 구조 (CureCalendarVo 구조에 맞춤)
+    final Map<String, dynamic> requestBody = {
+      "param": {
+        // 1. 기본 정보 (t_cure_calendar)
+        "patientSeq": inputData['patientId'],    // 환자 ID
+        "cureCalendarTypeCmcd": typeCode,        // 일정 타입 (treatment, medicine...)
+        "cureCalendarNm": inputData['title'],    // 제목
+        "cureCalendarDesc": inputData['content'],// 내용
+        "releaseYn": "Y",                        // 공개 여부 (기본값)
+
+        // 2. 상세 스케줄 정보 (t_cure_calendar_schedule)
+        "schedule": {
+          "cureScheduleStartDttm": startDttm,
+          "cureScheduleEndDttm": endDttm,
+          "cureScheduleDayYn": inputData['isAllDay'] ? "Y" : "N",
+          "cureScheduleRepeatYn": "N", // 반복 로직 구현 시 수정 필요
+        },
+
+        // 3. 알람 정보 (t_cure_calendar_alram) - 리스트 형태
+        "alrams": inputData['isAlarmOn'] ? [
+          {
+            // 알람 시간 계산 로직
+            "cureAlramDttm": _calculateAlarmTime(startDttm, inputData['alarmTime']),
+            "cureAlramTypeCmcd": _mapAlarmType(inputData['alarmType']) // push, sms 등 매핑 필요 시 처리
+          }
+        ] : []
       }
-      throw dioErr.message ?? '네트워크 오류가 발생했습니다.';
+    };
+
+    try {
+      final response = await _apiService.post('/rest/calendar/mergeCalendar', data: requestBody);
+
+      // 성공 처리 (필요시)
+      if (response.statusCode != 200) {
+        throw Exception("일정 등록 실패: ${response.statusMessage}");
+      }
+    } catch (e) {
+      // 에러 로그 출력 또는 재던지기
+      print("Create Schedule Error: $e");
+      rethrow;
+    }
+  }
+
+  // 일정 타입 매핑
+  String _mapTypeToCode(String type) {
+    switch (type) {
+      case '진료': return 'treatment';
+      case '복약': return 'medicine';
+      case '검사': return 'test';
+      case '기타': return 'etc';
+      default: return 'etc';
+    }
+  }
+
+  // 알람 타입 매핑 (필요하다면)
+  String _mapAlarmType(String type) {
+    // 서버 코드값에 맞춰 수정 (예: 푸시 -> push, SMS -> sms)
+    if (type == '푸시') return 'push';
+    if (type == 'SMS') return 'sms';
+    if (type == '이메일') return 'email';
+    return 'push';
+  }
+
+  String _calculateAlarmTime(String startDttmStr, String option) {
+    try {
+      DateTime startDttm = DateTime.parse(startDttmStr);
+      Duration subtractDuration = const Duration(minutes: 0);
+
+      if (option.contains('5분')) subtractDuration = const Duration(minutes: 5);
+      else if (option.contains('10분')) subtractDuration = const Duration(minutes: 10);
+      else if (option.contains('30분')) subtractDuration = const Duration(minutes: 30);
+      else if (option.contains('1시간')) subtractDuration = const Duration(hours: 1);
+      else if (option.contains('하루')) subtractDuration = const Duration(days: 1);
+
+      DateTime alarmTime = startDttm.subtract(subtractDuration);
+
+      // 서버 포맷에 맞게 반환 (yyyy-MM-dd HH:mm:ss)
+      return DateFormat('yyyy-MM-dd HH:mm:ss').format(alarmTime);
+    } catch (e) {
+      print("알람 시간 계산 오류: $e");
+      return startDttmStr; // 오류 시 시작 시간 그대로 반환
     }
   }
 
