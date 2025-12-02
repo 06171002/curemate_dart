@@ -71,5 +71,33 @@ class CurerModel {
     );
   }
 
+  CurerModel copyWith({
+    String? cureNm,
+    int? cureMediaGroupSeq,
+    String? cureDesc,
+    String? releaseYn,
+    String? useYn,
+    String? profileImgUrl,
+    String? regId,
+    String? regDttm,
+    String? updId,
+    String? updDttm,
+  }) {
+    return CurerModel(
+      cureSeq: cureSeq,
+      custSeq: custSeq,
+      cureNm: cureNm ?? this.cureNm,
+      cureMediaGroupSeq: cureMediaGroupSeq ?? this.cureMediaGroupSeq,
+      cureDesc: cureDesc ?? this.cureDesc,
+      releaseYn: releaseYn ?? this.releaseYn,
+      useYn: useYn ?? this.useYn,
+      profileImgUrl: profileImgUrl ?? this.profileImgUrl,
+      regId: regId ?? this.regId,
+      regDttm: regDttm ?? this.regDttm,
+      updId: updId ?? this.updId,
+      updDttm: updDttm ?? this.updDttm,
+    );
+  }
+
 // 필요시 toJson 구현...
 }

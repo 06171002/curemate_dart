@@ -202,7 +202,7 @@ class CalendarService {
   Future<Map<String, dynamic>> deleteSchedule(int scheduleSeq) async {
     try {
       final Response response = await _apiService.delete(
-        '/api/calendar/deleteSchedule/$scheduleSeq'
+          '/api/calendar/deleteSchedule/$scheduleSeq'
       );
 
       // 정상 응답

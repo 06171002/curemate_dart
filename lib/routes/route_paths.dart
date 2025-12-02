@@ -45,4 +45,7 @@ class RoutePaths {
   //복용약 수정추가
   static const String cureRoomMedicationDetail = '/cure-room/medications/detail';
 
+  //큐어룸 설정페이지
+   static const String cureRoomSettings = '/cure-room/settings'; 
+
 }

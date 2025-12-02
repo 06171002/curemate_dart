@@ -4,6 +4,7 @@ import 'package:curemate/features/auth/model/policy_model.dart';
 import 'package:curemate/features/auth/view/terms_agreement_screen.dart';
 import 'package:curemate/features/auth/view/terms_detail_screen.dart';
 import 'package:curemate/features/cure_room/view/add_cure_room_screen.dart';
+import 'package:curemate/features/cure_room/view/settings_screen.dart';
 import 'package:curemate/features/main_layout/view/main_layout_screen.dart';
 import 'package:curemate/features/profile/view/profile_edit_screen.dart';
 import 'package:curemate/services/permission_service.dart';
@@ -348,6 +349,25 @@ class AppRouter {
             );
           },
         ),
+
+
+        //큐어룸 설정페이지
+       GoRoute(
+        path: RoutePaths.cureRoomSettings,
+        name: 'cure_room_settings',
+        builder: (context, state) {
+          final detail = state.extra as CureRoomDetailModel?;
+
+          if (detail == null) {
+            return const Scaffold(
+              body: Center(child: Text('큐어룸 정보가 없습니다.')),
+            );
+          }
+
+          return CureRoomSettingsScreen(cureRoom: detail);
+        },
+      ),
+
       ],
         // ===============================
         //  CureRoom 관련 라우트들 끝

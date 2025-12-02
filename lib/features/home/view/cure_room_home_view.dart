@@ -297,19 +297,21 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: () async {
-              // 프로필 화면 갔다가
-              await context.push<bool>(
-                RoutePaths.cureRoomPatientProfile,
-                extra: {
-                  'patient': patient,
-                  'profileImgUrl': profileImgUrl,
-                },
-              );
+                onPressed: () async {
+                  // 프로필 화면 갔다가
+                  final bool? result = await context.push<bool>(
+                    RoutePaths.cureRoomPatientProfile,
+                    extra: {
+                      'patient': patient,
+                      'profileImgUrl': profileImgUrl,
+                    },
+                  );
 
-              // 돌아오면 무조건 다시 로드
-              _loadCureRoom();
-            },
+                  // ✅ 수정/삭제가 일어난 경우에만 리로드
+                  if (result == true) {
+                    _loadCureRoom();
+                  }
+                },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFA0C4FF), // 큐어룸 톤 유지
               foregroundColor: Colors.white,

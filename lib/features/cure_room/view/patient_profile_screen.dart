@@ -1,16 +1,14 @@
 // ignore_for_file: prefer_const_constructors, prefer_const_literals_to_create_immutables
 
+import 'dart:io';
+
 import 'package:curemate/app/theme/app_colors.dart';
 import 'package:curemate/features/cure_room/model/cure_room_models.dart';
-import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:curemate/features/cure_room/view/update_patient_screen.dart';
 import 'package:curemate/routes/route_paths.dart';
 import 'package:curemate/services/cure_room_service.dart';
-import 'package:curemate/features/cure_room/view/update_patient_screen.dart';
-import 'dart:io'; 
-
-// 🔹 수정 화면 import
-import 'package:curemate/features/cure_room/view/update_patient_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 class PatientProfileScreen extends StatefulWidget {
   final CurePatientModel patient;
@@ -29,106 +27,17 @@ class PatientProfileScreen extends StatefulWidget {
 class _PatientProfileScreenState extends State<PatientProfileScreen> {
   final CureRoomService _service = CureRoomService();
 
-  // 🔹 추가: 화면에서 쓸 환자 상태
+  // 🔹 화면에서 쓸 환자 상태
   CurePatientModel? _patient;
   bool _isLoading = false;
-
-  bool _updated = false; // ✅ 수정 여부 플래그 추가
+  bool _updated = false; // ✅ 수정/삭제 여부 플래그
   File? _localProfileImage;
 
- @override
+  @override
   void initState() {
     super.initState();
     // 처음엔 라우터에서 넘어온 값으로 세팅
     _patient = widget.patient;
-  }
-
-  // 생일을 수정 화면용 "yyyy-MM-dd"로 포맷
-  String? _formatBirthdayForEdit(String? yyyymmdd) {
-    if (yyyymmdd == null || yyyymmdd.length != 8) return null;
-    return '${yyyymmdd.substring(0, 4)}-'
-           '${yyyymmdd.substring(4, 6)}-'
-           '${yyyymmdd.substring(6, 8)}';
-  } 
-
-  @override
-  Widget build(BuildContext context) {
-    // 🔹 항상 state에 있는 환자 기준으로 그림
-    final patient = _patient ?? widget.patient;
-    // 🔹 새로 조회된 _patient의 profileImgUrl를 최우선으로 사용
-final profileImgUrl = patient.profileImgUrl ?? widget.profileImgUrl;
-
-    return Container(
-      color: AppColors.lightBackground,
-      child: SafeArea(
-        child: DefaultTextStyle(
-          // 이 화면 전체의 기본 텍스트 스타일
-          style: const TextStyle(
-            fontSize: 14,
-            color: AppColors.blueTextSecondary,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                /// 🔹 상단 뒤로가기 + 제목
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 12, 16, 0),
-                  child: SizedBox(
-                    height: 40,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        // 왼쪽 뒤로가기 버튼
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: IconButton(
-                            icon: const Icon(
-                              Icons.arrow_back_ios_new,
-                              size: 20,
-                              color: Colors.black, // 메인색 위라 흰색이 잘 보임
-                            ),
-                            onPressed: () {
-                               context.pop(_updated);
-                            },
-                          ),
-                        ),
-
-                        // 가운데 제목
-                        const Center(
-                          child: Text(
-                            '환자 프로필',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                /// 🔹 프로필 카드
-                _buildProfileCard(patient, profileImgUrl),
-
-                /// 🔹 기본 정보 카드
-                _buildBasicInfoCard(patient, profileImgUrl),
-
-                /// 🔹 병력 카드
-                _buildHistoryCard(patient),
-
-                /// 🔹 복용 약 카드
-                _buildMedicationCard(patient),
-
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
   }
 
   // 🔸 생년월일을 폼용 "yyyy-MM-dd"로 변환
@@ -144,10 +53,111 @@ final profileImgUrl = patient.profileImgUrl ?? widget.profileImgUrl;
         '${digits.substring(6, 8)}';
   }
 
+  @override
+  Widget build(BuildContext context) {
+    // 🔹 항상 state에 있는 환자 기준으로 그림
+    final patient = _patient ?? widget.patient;
+    // 🔹 새로 조회된 _patient의 profileImgUrl를 최우선으로 사용
+    final profileImgUrl = patient.profileImgUrl ?? widget.profileImgUrl;
+
+    return Stack(
+      children: [
+        Container(
+          color: AppColors.lightBackground,
+          child: SafeArea(
+            child: DefaultTextStyle(
+              // 이 화면 전체의 기본 텍스트 스타일
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.blueTextSecondary,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    /// 🔹 상단 뒤로가기 + 제목
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 12, 16, 0),
+                      child: SizedBox(
+                        height: 40,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            /// 🔹 뒤로가기 버튼
+                            IconButton(
+                              icon: const Icon(
+                                Icons.arrow_back_ios_new,
+                                size: 20,
+                                color: Colors.black,
+                              ),
+                              onPressed: () => context.pop(_updated),
+                            ),
+
+                            /// 🔹 가운데 제목
+                            const Text(
+                              '환자 프로필',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black,
+                              ),
+                            ),
+
+                            /// 🔹 삭제 버튼 (텍스트)
+                            GestureDetector(
+                              onTap: () => _confirmDeletePatient(_patient ?? widget.patient),
+                              child: const Text(
+                                '삭제',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.red, 
+                                ),
+                              ),
+                            )
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    /// 🔹 프로필 카드
+                    _buildProfileCard(patient, profileImgUrl),
+
+                    /// 🔹 기본 정보 카드 (정보 수정 + 환자 삭제)
+                    _buildBasicInfoCard(patient, profileImgUrl),
+
+                    /// 🔹 병력 카드
+                    _buildHistoryCard(patient),
+
+                    /// 🔹 복용 약 카드
+                    _buildMedicationCard(patient),
+
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // 🔹 로딩 오버레이
+        if (_isLoading)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withOpacity(0.05),
+              child: const Center(
+                child: CircularProgressIndicator(),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   // ======================================================
   // 🔹 프로필 카드
   // ======================================================
-    Widget _buildProfileCard(CurePatientModel patient, String? profileImgUrl) {
+  Widget _buildProfileCard(CurePatientModel patient, String? profileImgUrl) {
     final name = patient.patientNm;
     final heroTag = 'patientProfile_${patient.curePatientSeq}';
 
@@ -221,7 +231,8 @@ final profileImgUrl = patient.profileImgUrl ?? widget.profileImgUrl;
   // ======================================================
   // 🔹 기본 정보 카드
   // ======================================================
-  Widget _buildBasicInfoCard(CurePatientModel patient, String? profileImgUrl) {
+  Widget _buildBasicInfoCard(
+      CurePatientModel patient, String? profileImgUrl) {
     final ageText = _buildAgeText(patient.patientBirthday);
     final gender = _genderLabel(patient.patientGenderCmcd);
     final bloodType = patient.patientBloodTypeCmcd ?? '미등록';
@@ -264,6 +275,7 @@ final profileImgUrl = patient.profileImgUrl ?? widget.profileImgUrl;
 
           const SizedBox(height: 16),
 
+          // 🔹 정보 수정 버튼
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4.0),
             child: SizedBox(
@@ -278,20 +290,23 @@ final profileImgUrl = patient.profileImgUrl ?? widget.profileImgUrl;
 
                     if (!mounted) return;
 
-                    // 🔹 2) 수정 화면으로 이동 + 결과 기다리기 (bool 말고 dynamic/Map 받기)
+                    // 🔹 2) 수정 화면으로 이동 + 결과 기다리기
                     final result = await Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => UpdatePatientScreen(
                           patientSeq: curePatient.curePatientSeq,
                           initialName: curePatient.patientNm,
-                          initialBirthday:
-                              _formatBirthdayForForm(curePatient.patientBirthday),
-                          initialGender: curePatient.patientGenderCmcd ?? 'man',
-                          initialBloodType: curePatient.patientBloodTypeCmcd,
+                          initialBirthday: _formatBirthdayForForm(
+                              curePatient.patientBirthday),
+                          initialGender:
+                              curePatient.patientGenderCmcd ?? 'man',
+                          initialBloodType:
+                              curePatient.patientBloodTypeCmcd,
                           initialWeight: curePatient.patientWeight,
                           initialHeight: curePatient.patientHeight,
                           initialImageFile: null,
-                          initialImageUrl: profileImgUrl ?? curePatient.profileImgUrl,
+                          initialImageUrl:
+                              profileImgUrl ?? curePatient.profileImgUrl,
                         ),
                       ),
                     );
@@ -307,7 +322,7 @@ final profileImgUrl = patient.profileImgUrl ?? widget.profileImgUrl;
 
                       setState(() {
                         _patient = refreshed;
-                        _updated = true;
+                        _updated = true; // ✅ 수정됨 플래그
 
                         final file = result['localImageFile'];
                         if (file is File) {
@@ -344,6 +359,9 @@ final profileImgUrl = patient.profileImgUrl ?? widget.profileImgUrl;
               ),
             ),
           ),
+
+          const SizedBox(height: 8),
+
         ],
       ),
     );
@@ -543,8 +561,76 @@ final profileImgUrl = patient.profileImgUrl ?? widget.profileImgUrl;
       ),
     );
   }
+
+  // ======================================================
+  // 🔹 환자 삭제 확인 + API 호출
+  // ======================================================
+  Future<void> _confirmDeletePatient(CurePatientModel patient) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('환자 삭제'),
+          content: const Text(
+            '이 환자를 삭제하면\n'
+            '• 병력, 복용약, 기록 등 환자에 연결된 정보가 모두 삭제되거나 접근할 수 없게 되고\n'
+            '• 다른 보호자와의 연결도 해제될 수 있어요.\n\n'
+            '정말 삭제할까요?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red,
+              ),
+              child: const Text('삭제'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // ✅ 실제 삭제 API
+      await _service.deleteCurePatient(patient.curePatientSeq);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('환자를 삭제했어요.')),
+      );
+
+      // ✅ 수정/삭제 되었으니까 true로 pop
+      _updated = true;
+      context.pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('삭제 중 오류가 발생했어요.\n$e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
 }
 
+// ======================================================
+// 🔹 전체 화면 프로필 이미지 확대
+// ======================================================
 class _FullScreenProfileImage extends StatelessWidget {
   final String imageUrl;
   final String heroTag;
@@ -600,8 +686,8 @@ class _FullScreenProfileImage extends StatelessWidget {
                     size: 24,
                   ),
                   onPressed: () {
-               Navigator.of(context).pop(); // 또는 context.pop();
-              },
+                    Navigator.of(context).pop(); // 또는 context.pop();
+                  },
                 ),
               ),
             ],

@@ -6,7 +6,9 @@ import 'package:curemate/features/widgets/common/bottom_nav_provider.dart';
 import 'package:curemate/features/main_layout/widget/cure_room_drawer.dart';
 import 'package:curemate/features/home/view/home_tab.dart';
 import 'package:curemate/features/settings/view/more_tab.dart';
-
+import 'package:curemate/routes/route_paths.dart'; 
+import 'package:go_router/go_router.dart';
+import 'package:curemate/services/cure_room_service.dart';
 
 import '../../story/view/story_tab.dart';
 import 'package:curemate/features/calendar/view/calendar_screen.dart';
@@ -22,6 +24,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   final PageController _pageController = PageController();
   // ✅ Scaffold 상태 제어를 위한 GlobalKey
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final CureRoomService _cureRoomService = CureRoomService();
 
   @override
   void dispose() {
@@ -118,22 +121,56 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
           children: [
             // 1. 알림 아이콘
             _buildCustomActionIcon(
+
               icon: Icons.notifications_none,
               onTap: () {
-                // 알림 화면 이동 로직
+               // 알림 화면 이동 로직
               },
             ),
 
             // 2. 설정 아이콘 (큐어룸 모드일 때만)
             if (provider.isCureMode) ...[
-              // 필요하다면 여기에 SizedBox(width: 4) 등을 추가해 미세 조정 가능
-              // 현재는 0 간격으로 붙여서 buildCustomActionIcon의 패딩만 적용됨
               _buildCustomActionIcon(
                 icon: Icons.settings_outlined,
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("큐어룸 설정 화면으로 이동합니다.")),
-                  );
+                onTap: () async {
+                  final curer = provider.selectedCurer;
+                  if (curer == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('선택된 큐어룸이 없습니다.')),
+                    );
+                    return;
+                  }
+
+                  final int cureSeq = curer.cureSeq; // ✅ 선택된 큐어룸 ID
+
+                  try {
+                    // 1) 큐어룸 단건 조회
+                    final cureRoomData = await _cureRoomService.getCureRoom(cureSeq);
+                    if (!context.mounted) return;
+
+                    // 2) 설정 화면으로 이동 + 현재 공개 여부(bool)를 결과로 받기
+                    final bool? isPublic = await context.push<bool>(
+                      RoutePaths.cureRoomSettings,
+                      extra: cureRoomData,
+                    );
+
+                    // 3) 사용자가 설정 화면에서 돌아올 때 값이 넘어온 경우만 처리
+                   if (isPublic != null) {
+                      // immutable하게 새 curer 만들기
+                      final updatedCurer = curer.copyWith(
+                        releaseYn: isPublic ? 'Y' : 'N',
+                      );
+
+                      // Provider에 반영 (화면들 리빌드)
+                      provider.selectCurer(updatedCurer);
+                    }
+
+                  } catch (e) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('큐어룸 정보를 불러오지 못했어요: $e')),
+                    );
+                  }
                 },
               ),
             ],

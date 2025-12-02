@@ -265,3 +265,68 @@ class CureDiseaseModel {
     );
   }
 }
+
+class CureInterestModel {
+  final int cureInterestSeq;
+  final int custSeq;
+  final int cureSeq;
+  final String custNm;
+  final String custNickname;
+  final int custMediaGroupSeq;
+  final Map<String, dynamic>? interestProfile;
+  final String withdrawYn; // 'Y'/'N'
+  final String regDttm;
+
+  CureInterestModel({
+    required this.cureInterestSeq,
+    required this.custSeq,
+    required this.cureSeq,
+    required this.custNm,
+    required this.custNickname,
+    required this.custMediaGroupSeq,
+    required this.interestProfile,
+    required this.withdrawYn,
+    required this.regDttm,
+  });
+
+  factory CureInterestModel.fromJson(Map<String, dynamic> json) {
+    return CureInterestModel(
+      cureInterestSeq: json['cureInterestSeq'] ?? 0,
+      custSeq: json['custSeq'] ?? 0,
+      cureSeq: json['cureSeq'] ?? 0,
+      custNm: (json['custNm'] ?? '').toString(),
+      custNickname: (json['custNickname'] ?? '').toString(),
+      custMediaGroupSeq: json['custMediaGroupSeq'] ?? 0,
+      interestProfile: json['interestProfile'] as Map<String, dynamic>?,
+      withdrawYn: (json['withdrawYn'] ?? '').toString(),
+      regDttm: (json['regDttm'] ?? '').toString(),
+    );
+  }
+
+  /// 닉네임 있으면 닉네임, 아니면 이름
+  String get displayName =>
+      custNickname.isNotEmpty ? custNickname : custNm;
+
+  /// 탈퇴 여부
+  bool get isWithdrawn => withdrawYn == 'Y';
+
+  /// 프로필 이미지 URL (patient/customer랑 같은 규칙)
+  String? get profileImgUrl {
+    final profile = interestProfile;
+    if (profile == null) return null;
+
+    final detailList = profile['detailList'];
+    if (detailList is! List || detailList.isEmpty) return null;
+
+    final first = detailList.first as Map<String, dynamic>;
+    final String? detail = first['mediaDetailUrl'];
+    final String? thumb = first['mediaThumbUrl'];
+    final String? main = first['mediaUrl'];
+
+    final String? path = detail ?? thumb ?? main;
+    if (path == null || path.isEmpty) return null;
+
+    if (path.startsWith('http')) return path;
+    return '${EnvConfig.BASE_URL}$path';
+  }
+}

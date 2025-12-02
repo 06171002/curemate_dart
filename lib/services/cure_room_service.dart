@@ -276,6 +276,17 @@ Future<void> updateCurePatient({
   await saveCurePatient(param);
 }
 
+/// 🗑 환자 삭제 API
+Future<void> deleteCurePatient(int curePatientSeq) async {
+  await _apiService.post(
+    '/rest/cure/deleteCurePatient',
+    data: {
+      'param': {
+        'curePatientSeq': curePatientSeq, // 백엔드에서 받는 파라미터 이름
+      },
+    },
+  );
+}
   /// 큐어룸 목록 조회
   Future<List<CurerModel>> getCureRoomList() async {
     try {
@@ -325,4 +336,57 @@ Future<void> updateCurePatient({
       rethrow;
     }
   }
+
+  
+  /// 🔹 큐어룸 공개 여부 수정
+  Future<void> updateCureRoomRelease({
+  required int cureSeq,
+  required bool isPublic,
+}) async {
+  // ✅ 서버에서 요구하는 형식: { "param": { ... } }
+  final body = {
+    'param': {
+      'cureSeq': cureSeq,
+      'releaseYn': isPublic ? 'Y' : 'N',
+    },
+  };
+
+  print('📡 [updateCureRoomRelease] REQUEST body=$body');
+
+  final res = await _apiService.post(
+    '/rest/cure/updateCureRoomRelease',
+    data: body,
+  );
+
+  print('📥 [updateCureRoomRelease] RESPONSE: ${res.data}');
+
+  // 공통 응답 형식 체크 (code != 200이면 에러)
+  if (res.data is Map &&
+      res.data['code']?.toString() != '200') {
+    throw Exception(
+      '공개 여부 변경 실패: ${res.data['detail'] ?? res.data['message'] ?? '알 수 없는 오류'}',
+    );
+  }
+}
+
+ Future<List<CureInterestModel>> getCureInterestList(int cureSeq) async {
+  final res = await _apiService.post(
+    '/rest/cure/cureInterestList',
+    data: {
+      'param': {
+        'cureSeq': cureSeq,
+      },
+    },
+  );
+
+  // 🔹 Dio Response일 때는 res.data 사용
+  final data = res.data; // dynamic
+
+  final List<dynamic> list = (data['data'] ?? []) as List<dynamic>;
+
+  return list
+      .map((e) => CureInterestModel.fromJson(e as Map<String, dynamic>))
+      .toList();
+}
+
 }

@@ -39,7 +39,7 @@ class PatientViewModel with ChangeNotifier {
   }
 
   /// 👇 여기서 DB 변경 이벤트를 구독
-   void _subscribeRealtime() {
+  void _subscribeRealtime() {
   }
 
   /// 환자 등록 처리 함수 (상태 포함)
