@@ -13,13 +13,17 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:curemate/routes/route_paths.dart';
 import 'package:curemate/features/widgets/common/custom_profile_avatar.dart';
+import 'package:intl/intl.dart';
 
 // ✅ 모델 import
 import 'package:curemate/features/cure_room/model/cure_room_models.dart';
 import 'package:curemate/features/cure_room/model/curer_model.dart';
+import 'package:curemate/features/calendar/model/calendar_schedule_model.dart';
+import 'package:curemate/features/calendar/model/calendar_model.dart';
 
 // ✅ 서비스 import
 import 'package:curemate/services/cure_room_service.dart';
+import 'package:curemate/services/calendar_service.dart';
 
 class CureRoomHomeView extends StatefulWidget {
   const CureRoomHomeView({super.key});
@@ -40,7 +44,13 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
   bool _isLoading = true;
   String? _errorMessage;
 
-  int? _lastLoadedCureSeq; 
+  int? _lastLoadedCureSeq;
+
+  // 일정을 담을 변수 (기존 scheduleItems 대신 사용하거나 매핑)
+  List<CureCalendarModel> _allMonthSchedules = [];
+  List<CureCalendarModel> _todaySchedules = [];
+
+  final CalendarService _calendarService = CalendarService();
 
   /// 👉 오늘 일정 (지금은 더미 데이터 비활성화)
   final List<Map<String, dynamic>> scheduleItems = [
@@ -67,8 +77,100 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
 
       // 🔥 최초 진입 시 한 번은 무조건 로드
       _loadCureRoom();
+      _loadDailySchedule();
 
     });
+  }
+
+  // ✅ 일정 목록 조회 및 오늘 일정 필터링
+  Future<void> _loadDailySchedule() async {
+    final nav = Provider.of<BottomNavProvider>(context, listen: false);
+    final int? cureSeq = nav.cureSeq;
+    if (cureSeq == null) return;
+
+    try {
+      final now = DateTime.now();
+      final String currentMonth = DateFormat('yyyyMM').format(now); // 예: 202405
+
+      // 1. API 호출 (CureSeq + CalendarMonth)
+      // CalendarService 등에 selectCureCalendarList에 대응하는 메소드가 있다고 가정
+      // 파라미터: cureSeq, calendarMonth
+      final List<CureCalendarModel> result =
+      await _calendarService.getCureCalendarList(cureSeq, currentMonth);
+
+      // 2. 오늘 날짜에 해당하는 것만 필터링
+      final todayList = result.where((calendar) {
+        final schedule = calendar.schedule; // 모델 구조에 따라 접근 경로 확인 필요
+        if (schedule == null) return false;
+
+        return _isScheduleOnDate(schedule, now);
+      }).toList();
+
+      setState(() {
+        _allMonthSchedules = result;
+        _todaySchedules = todayList;
+
+        // 화면 표시용 더미 리스트 교체 (UI 바인딩용)
+        scheduleItems.clear();
+        for (var item in _todaySchedules) {
+          scheduleItems.add({
+            'title': item.cureCalendarNm,
+            'time': _formatTime(item.schedule?.cureScheduleStartDttm), // 시간 포맷팅 필요
+            'isDone': false, // 수행 여부 데이터가 있다면 연동
+          });
+        }
+      });
+    } catch (e) {
+      print('일정 로드 실패: $e');
+    }
+  }
+
+  // ✅ 특정 날짜(date)가 스케줄에 포함되는지 확인하는 로직
+  bool _isScheduleOnDate(CureCalendarScheduleModel schedule, DateTime date) {
+    // 1. 날짜 범위 체크 (Start ~ End)
+    final start = DateTime.tryParse(schedule.cureScheduleStartDttm ?? '');
+    final end = DateTime.tryParse(schedule.cureScheduleEndDttm ?? '');
+
+    if (start == null || end == null) return false;
+
+    // 시간 제거 후 날짜만 비교 (yyyy-MM-dd)
+    final targetDate = DateTime(date.year, date.month, date.day);
+    final startDate = DateTime(start.year, start.month, start.day);
+    final endDate = DateTime(end.year, end.month, end.day);
+
+    if (targetDate.isBefore(startDate) || targetDate.isAfter(endDate)) {
+      return false;
+    }
+
+    // 2. 반복 여부 체크
+    if (schedule.cureScheduleRepeatYn == 'N') {
+      // 반복 없으면 날짜 범위 안에 있으면 True (보통 당일치기)
+      return true;
+    } else {
+      // 반복 있으면 요일 체크
+      // weekday: 1(월) ~ 7(일)
+      switch (date.weekday) {
+        case DateTime.monday: return schedule.cureScheduleMonYn == 'Y';
+        case DateTime.tuesday: return schedule.cureScheduleTuesYn == 'Y';
+        case DateTime.wednesday: return schedule.cureScheduleWednesYn == 'Y';
+        case DateTime.thursday: return schedule.cureScheduleThursYn == 'Y';
+        case DateTime.friday: return schedule.cureScheduleFriYn == 'Y';
+        case DateTime.saturday: return schedule.cureScheduleSaturYn == 'Y';
+        case DateTime.sunday: return schedule.cureScheduleSunYn == 'Y';
+      }
+    }
+    return false;
+  }
+
+  String _formatTime(String? dateTimeStr) {
+    if (dateTimeStr == null) return '';
+    // DB값이 '2024-05-20 14:00:00' 형태라고 가정 시 파싱 후 시간만 리턴
+    try {
+      final dt = DateTime.parse(dateTimeStr);
+      return DateFormat('a h:mm', 'ko').format(dt); // 예: 오후 2:00
+    } catch (e) {
+      return '';
+    }
   }
 
   // -----------------------------
@@ -337,7 +439,7 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
 }
   /// 환자 없음 기본 카드
   /// 환자 없음 기본 카드 (환자 카드와 거의 동일 레이아웃)
-Widget _buildEmptyPatientCard() {
+  Widget _buildEmptyPatientCard() {
   return Container(
     margin: const EdgeInsets.fromLTRB(16, 40, 16, 16),
     padding: const EdgeInsets.all(20),

@@ -3,6 +3,7 @@
 import 'package:dio/dio.dart';
 import 'api_service.dart';
 import 'package:intl/intl.dart';
+import 'package:curemate/features/calendar/model/calendar_model.dart';
 
 class CalendarService {
   final ApiService _apiService;
@@ -244,6 +245,43 @@ class CalendarService {
     } catch (e) {
       print('월별 일정 조회 실패: $e');
       // 필요 시 빈 리스트 반환 혹은 에러 rethrow
+      return [];
+    }
+  }
+
+  /// ✅ [추가] 큐어룸 캘린더 목록 조회 (월별)
+  /// - cureSeq: 큐어룸 시퀀스
+  /// - month: 조회할 월 (yyyyMM 형식, 예: "202405")
+  Future<List<CureCalendarModel>> getCureCalendarList(int cureSeq, String month) async {
+    // 1. 요청 파라미터 구성 (Backend ApiVo 구조에 맞춤)
+    final Map<String, dynamic> requestBody = {
+      "param": {
+        "cureSeq": cureSeq,
+        "calendarMonth": month,
+        // 필요시 "onlyCustSeq": ... 추가 가능
+      }
+    };
+
+    try {
+      // 2. API 호출
+      final response = await _apiService.post(
+        '/rest/calendar/selectCureCalendarList',
+        data: requestBody,
+      );
+
+      // 3. 응답 처리
+      // RestCalendarController에서 ApiVo.makeApiResponse로 감싸서 리턴하므로 'data' 필드 확인
+      if (response.statusCode == 200 && response.data['data'] != null) {
+        final List<dynamic> list = response.data['data'];
+
+        // JSON 리스트를 모델 리스트로 변환
+        return list.map((json) => CureCalendarModel.fromJson(json)).toList();
+      } else {
+        return [];
+      }
+    } catch (e) {
+      print('getCureCalendarList 오류: $e');
+      // 에러 발생 시 빈 리스트 반환 (또는 rethrow)
       return [];
     }
   }
