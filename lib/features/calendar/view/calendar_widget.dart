@@ -30,6 +30,7 @@ class CalendarWidget extends StatelessWidget {
         firstDay: DateTime(2000),
         lastDay: DateTime(2100),
         focusedDay: focusedDay,
+        daysOfWeekHeight: 30.0,
         selectedDayPredicate: (day) => isSameDay(selectedDay, day),
         onDaySelected: onDaySelected,
         onPageChanged: onPageChanged, // 월 변경 시 호출

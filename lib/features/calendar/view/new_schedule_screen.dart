@@ -5,6 +5,11 @@ import 'package:curemate/features/widgets/common/custom_text_field.dart'; // 공
 import 'package:curemate/services/calendar_service.dart';
 import 'package:curemate/features/patient/viewmodel/patient_viewmodel.dart';
 import '../../../app/theme/app_colors.dart';
+import 'package:provider/provider.dart';
+import 'package:curemate/features/widgets/common/bottom_nav_provider.dart';
+
+
+enum ScheduleCategory { personal, patient }
 
 class NewScheduleScreen extends StatefulWidget {
   final DateTime selectedDateFromPreviousScreen;
@@ -68,6 +73,8 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
   final CalendarService _calendarService = CalendarService();
 
   bool get _isEditing => widget.existingSchedule != null;
+
+  ScheduleCategory _selectedCategory = ScheduleCategory.personal;
 
   @override
   void initState() {
@@ -293,8 +300,11 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
 
   // --- 저장 로직 ---
   void _saveSchedule() async {
+    final navProvider = context.read<BottomNavProvider>();
+    final bool isMainMode = navProvider.isMainMode;
+
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedPatientId == null && !_isEditing) {
+    if (_selectedPatientId == null && !_isEditing && _selectedCategory != ScheduleCategory.personal) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('환자를 선택해주세요.')));
       return;
     }
@@ -322,9 +332,30 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
         'alarmTime': _isAlarmOn ? _alarmTime : null,
       };
 
+      if (_selectedCategory == ScheduleCategory.personal) {
+        // [개인 일정]
+        // 큐어룸이나 환자 정보 없이 내 개인 일정으로 저장
+        // (백엔드 로직에 따라 cureSeq를 0이나 null로 보냄)
+        scheduleData['cureSeq'] = 0;
+        scheduleData['patientId'] = 0;
+        scheduleData['scheduleType'] = 'personal'; // 필요 시 별도 타입 지정
+
+      } else {
+        // 2. 환자 일정
+        scheduleData['scheduleType'] = _selectedScheduleType; // 진료, 복약 등
+
+        if (isMainMode) {
+          // 메인 모드: 직접 선택한 환자와 큐어룸 정보 사용
+          scheduleData['cureSeq'] = _selectedCureSeq;
+          scheduleData['patientId'] = _selectedPatientId;
+        } else {
+          // 큐어룸 모드: 현재 진입해있는 큐어룸 정보 자동 사용
+          scheduleData['cureSeq'] = navProvider.cureSeq;
+          scheduleData['patientId'] = 0; // 특정 환자를 지정하지 않는 경우 (필요 시 수정)
+        }
+      }
+
       if (!_isEditing) {
-        scheduleData['patientId'] = _selectedPatientId;
-        scheduleData['cureSeq'] = _selectedCureSeq;
         await _calendarService.createSchedule(scheduleData);
       } else {
         final int scheduleSeq = widget.existingSchedule!['schedule_seq'];
@@ -353,6 +384,12 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // [1] Provider에서 정보 가져오기 (매개변수로 안 넘겨도 됨!)
+    final navProvider = context.watch<BottomNavProvider>();
+    final bool isMainMode = navProvider.isMainMode;
+    final int? currentCureSeq = navProvider.cureSeq;
+    final String? currentCureName = navProvider.cureName;
+
     final patientViewModel = context.watch<PatientViewModel>();
 
     return Scaffold(
@@ -382,43 +419,98 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // 1. 환자 선택 (신규 등록 시에만 표시)
+                // ------------------------------------------------
+                // 1. [신규] 일정 카테고리 선택 (라디오 버튼)
+                // ------------------------------------------------
                 if (!_isEditing) ...[
-                  _buildSectionLabel('환자'),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<int>(
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: AppColors.white,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.inputBorder)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.inputBorder)),
-                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.activeColor, width: 2)),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: RadioListTile<ScheduleCategory>(
+                          title: const Text('개인 일정', style: TextStyle(fontSize: 14)),
+                          value: ScheduleCategory.personal,
+                          groupValue: _selectedCategory,
+                          contentPadding: EdgeInsets.zero,
+                          activeColor: AppColors.mainBtn,
+                          onChanged: (value) => setState(() => _selectedCategory = value!),
+                        ),
+                      ),
+                      Expanded(
+                        child: RadioListTile<ScheduleCategory>(
+                          title: const Text('환자 일정', style: TextStyle(fontSize: 14)),
+                          value: ScheduleCategory.patient,
+                          groupValue: _selectedCategory,
+                          contentPadding: EdgeInsets.zero,
+                          activeColor: AppColors.mainBtn,
+                          onChanged: (value) => setState(() => _selectedCategory = value!),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 32, thickness: 1, color: AppColors.lightGrey),
+                ],
+
+                // ------------------------------------------------
+                // 2. [조건부 UI] 환자 일정 선택 시에만 표시되는 항목들
+                // ------------------------------------------------
+                if (_selectedCategory == ScheduleCategory.patient) ...[
+
+                  // A. 대상 선택 영역
+                  if (isMainMode) ...[
+                    // [메인 모드] -> 환자를 직접 선택해야 함
+                    _buildSectionLabel('대상 환자'),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<int>(
+                      decoration: _inputDecoration(), // 아래 헬퍼 함수 사용
+                      value: _selectedPatientId,
+                      hint: const Text('환자를 선택하세요', style: TextStyle(color: AppColors.textSecondaryLight, fontSize: 14)),
+                      items: patientViewModel.patients.map((patient) {
+                        final int pId = patient['patient_id'] ?? patient['id'];
+                        final String pName = patient['name'] ?? '이름 없음';
+                        return DropdownMenuItem<int>(value: pId, child: Text(pName));
+                      }).toList(),
+                      onChanged: _isEditing ? null : (value) {
+                        setState(() {
+                          _selectedPatientId = value;
+                          // 선택된 환자에서 cureSeq 찾기
+                          final selectedPatient = patientViewModel.patients.firstWhere(
+                                (element) => (element['patient_id'] ?? element['id']) == value,
+                            orElse: () => {},
+                          );
+                          _selectedCureSeq = selectedPatient['cure_seq'] ?? selectedPatient['cureSeq'];
+                        });
+                      },
                     ),
-                    value: _selectedPatientId,
-                    hint: const Text('환자를 선택하세요', style: TextStyle(color: AppColors.textSecondaryLight, fontSize: 14)),
-                    items: patientViewModel.patients.map((patient) {
-                      final int pId = patient['patient_id'] ?? patient['id'];
-                      final String pName = patient['name'] ?? '이름 없음';
-                      return DropdownMenuItem<int>(value: pId, child: Text(pName));
+                  ],
+                  const SizedBox(height: 24),
+
+                  // B. 일정 유형 (진료/복약 등) -> 환자 일정일 때만 표시
+                  _buildSectionLabel('일정 유형'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 10,
+                    children: _scheduleTypes.map((type) {
+                      final isSelected = _selectedScheduleType == type;
+                      return ChoiceChip(
+                        label: Text(
+                          type,
+                          style: TextStyle(
+                            color: isSelected ? Colors.white : AppColors.textMainDark,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                        selected: isSelected,
+                        selectedColor: AppColors.mainBtn,
+                        backgroundColor: AppColors.lightGrey,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          side: BorderSide(color: isSelected ? Colors.transparent : AppColors.inputBorder),
+                        ),
+                        onSelected: (bool selected) {
+                          if (selected) setState(() => _selectedScheduleType = type);
+                        },
+                      );
                     }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedPatientId = value;
-
-                        // [추가] 선택된 환자 ID로 전체 객체 찾기
-                        final selectedPatient = patientViewModel.patients.firstWhere(
-                              (element) => (element['patient_id'] ?? element['id']) == value,
-                          orElse: () => {},
-                        );
-
-                        // [추가] cureSeq 추출 및 저장
-                        // (실제 API 응답 키값이 'cure_seq'인지 'cureSeq'인지 확인 필요, 보통 DB 컬럼명인 snake_case일 가능성이 높음)
-                        _selectedCureSeq = selectedPatient['cure_seq'] ?? selectedPatient['cureSeq'];
-
-                        print("Selected Patient ID: $_selectedPatientId, Cure Seq: $_selectedCureSeq"); // 디버깅용 로그
-                      });
-                    },
                   ),
                   const SizedBox(height: 24),
                 ],
@@ -429,33 +521,6 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
                   hint: '일정 제목을 입력하세요',
                   controller: _titleController,
                   isRequired: true,
-                ),
-                const SizedBox(height: 24),
-
-                // 3. 일정 유형 (Chips)
-                _buildSectionLabel('일정 유형'),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 10,
-                  children: _scheduleTypes.map((type) {
-                    final isSelected = _selectedScheduleType == type;
-                    return ChoiceChip(
-                      label: Text(
-                          type,
-                          style: TextStyle(
-                            color: isSelected ? Colors.white : AppColors.textMainDark,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          )
-                      ),
-                      selected: isSelected,
-                      selectedColor: AppColors.mainBtn,
-                      backgroundColor: AppColors.lightGrey,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide(color: isSelected ? Colors.transparent : AppColors.inputBorder)),
-                      onSelected: (bool selected) {
-                        if (selected) setState(() => _selectedScheduleType = type);
-                      },
-                    );
-                  }).toList(),
                 ),
                 const SizedBox(height: 24),
 
@@ -638,6 +703,18 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
           color: AppColors.textMainDark,
           fontFamily: 'Pretendard',
         )
+    );
+  }
+
+  // 스타일 헬퍼 함수
+  InputDecoration _inputDecoration() {
+    return InputDecoration(
+      filled: true,
+      fillColor: AppColors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.inputBorder)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.inputBorder)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.activeColor, width: 2)),
     );
   }
 }

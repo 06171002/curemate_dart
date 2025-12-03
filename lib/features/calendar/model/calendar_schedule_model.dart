@@ -50,7 +50,7 @@ class CureCalendarScheduleModel {
       cureScheduleDayYn: json['cureScheduleDayYn'] as String?,
       cureScheduleTypeCmcd: json['cureScheduleTypeCmcd'] as String?,
       cureScheduleRepeatYn: json['cureScheduleRepeatYn'] as String?,
-      cureScheduleRepeat: json['cureScheduleRepeat'] as String?,
+      cureScheduleRepeat: json['cureScheduleRepeat']?.toString(),
 
       // 요일별 컬럼 매핑
       cureScheduleMonYn: json['cureScheduleMonYn'] as String?,

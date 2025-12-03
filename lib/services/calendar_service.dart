@@ -115,6 +115,7 @@ class CalendarService {
       case '복약': return 'medicine';
       case '검사': return 'test';
       case '기타': return 'etc';
+      case 'personal': return 'personal';
       default: return 'etc';
     }
   }
