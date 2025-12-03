@@ -72,9 +72,6 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
       header.setTitle('큐어룸 홈');
       header.setShowBackButton(false);
 
-      final nav = Provider.of<BottomNavProvider>(context, listen: false);
-      nav.changeIndex(0);
-
       // 🔥 최초 진입 시 한 번은 무조건 로드
       _loadCureRoom();
       _loadDailySchedule();
