@@ -35,6 +35,11 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
   String _repeatOption = '반복 없음';
   final List<String> _repeatOptions = ['반복 없음', '매일', '매주', '매월', '매년'];
 
+  // [추가] 반복 종료일 관련 변수
+  DateTime? _repeatEndDate; // 반복 종료 날짜
+  bool _isRepeatNoEnd = true; // '계속 반복(종료일 없음)' 여부
+  final TextEditingController _repeatEndDateController = TextEditingController(); // 표시용 컨트롤러
+
   late DateTime _startDate;
   late DateTime _endDate;
   late String _startTime;
@@ -146,8 +151,14 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
         _selectedPatientId = schedule['patient_id'];
       }
 
-      // 반복 옵션 등이 있다면 여기서 초기화
-      // _repeatOption = schedule['repeat_option'] ?? '반복 없음';
+      // [추가] 반복 종료일 데이터 로딩
+      if (schedule['repeatEndDate'] != null) {
+        _repeatEndDate = DateTime.parse(schedule['repeatEndDate']);
+        _isRepeatNoEnd = false; // 종료일 있음
+      } else {
+        _isRepeatNoEnd = true; // 계속 반복
+        _repeatEndDate = null;
+      }
 
     } else {
       // 신규 등록
@@ -160,6 +171,10 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
 
       _startTime = "${startDt.hour.toString().padLeft(2, '0')}:${startDt.minute.toString().padLeft(2, '0')}";
       _endTime = "${endDt.hour.toString().padLeft(2, '0')}:${endDt.minute.toString().padLeft(2, '0')}";
+
+      // 신규 등록 시 기본값: 반복 종료일 없음(계속 반복)
+      _isRepeatNoEnd = true;
+      _repeatEndDate = DateTime.now().add(const Duration(days: 365)); // UI상 보여줄 기본값 정도
     }
 
     _updateDateTimeControllers();
@@ -171,6 +186,13 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
     _startTimeController.text = _startTime;
     _endTimeController.text = _endTime;
     _repeatController.text = _repeatOption;
+
+    // [추가] 반복 종료일 컨트롤러 업데이트
+    if (_repeatEndDate != null) {
+      _repeatEndDateController.text = DateFormat('yyyy-MM-dd').format(_repeatEndDate!);
+    } else {
+      _repeatEndDateController.text = "";
+    }
   }
 
   @override
@@ -341,21 +363,113 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
       String startDateStr = DateFormat('yyyy-MM-dd').format(_startDate);
       String endDateStr = DateFormat('yyyy-MM-dd').format(_endDate);
 
-      // 1. 전송할 데이터 맵 구성
-      final Map<String, dynamic> scheduleData = {
-        // [추가] 수정 시 필요한 ID (없으면 0)
-        'cureCalendarSeq': widget.existingSchedule?['cureCalendarSeq'] ?? 0,
+      // ====================================================
+      // [1] 반복 주기(int) 및 요일 플래그(Y/N) 계산 로직 추가
+      // ====================================================
+      int repeatCycle = 0; // DB: cure_schedule_repeat (int)
+      String monYn = 'N';
+      String tueYn = 'N';
+      String wedYn = 'N';
+      String thuYn = 'N';
+      String friYn = 'N';
+      String satYn = 'N';
+      String sunYn = 'N';
 
+      // 반복이 설정된 경우
+      if (_repeatOption != '반복 없음') {
+        repeatCycle = 1; // 기본적으로 '매'주, '매'일 이므로 주기는 1로 설정
+
+        if (_repeatOption == '매일') {
+          // 매일이면 모든 요일 Y
+          monYn = 'Y'; tueYn = 'Y'; wedYn = 'Y'; thuYn = 'Y'; friYn = 'Y'; satYn = 'Y'; sunYn = 'Y';
+        }
+        else if (_repeatOption == '매주') {
+          // 매주면 '시작일'의 요일을 찾아 해당 요일만 Y로 설정
+          // _startDate.weekday: 1(월) ~ 7(일)
+          switch (_startDate.weekday) {
+            case 1: monYn = 'Y'; break;
+            case 2: tueYn = 'Y'; break;
+            case 3: wedYn = 'Y'; break;
+            case 4: thuYn = 'Y'; break;
+            case 5: friYn = 'Y'; break;
+            case 6: satYn = 'Y'; break;
+            case 7: sunYn = 'Y'; break;
+          }
+        }
+        // '매월', '매년'은 보통 요일 플래그를 쓰지 않고 날짜(일)를 기준으로 하므로 N 유지
+      }
+
+      // [중요] 반복 종료일 처리 로직
+      String stopYn = 'N'; // 기본: 반복 종료일 없음
+      String? stopDttmStr;
+
+      if (_repeatOption != '반복 없음') {
+        if (_isRepeatNoEnd) {
+          stopYn = 'N';
+          // SQL 쿼리상 BETWEEN 조건에 걸리게 하려면 아주 먼 미래 날짜를 넣어주는게 안전합니다.
+          stopDttmStr = "4999-12-31 23:59:59";
+        } else {
+          stopYn = 'Y';
+          // 사용자가 지정한 날짜의 끝 시간으로 설정
+          if (_repeatEndDate != null) {
+            stopDttmStr = "${DateFormat('yyyy-MM-dd').format(_repeatEndDate!)} 23:59:59";
+          }
+        }
+      } else {
+        // 반복이 아닐 경우, stopDttm은 해당 일정의 종료일과 같게 설정하거나 null
+        stopYn = 'Y';
+        stopDttmStr = _isAllDay ? "$endDateStr 23:59:59" : "$endDateStr $_endTime:00";
+      }
+
+      // [추가] 반복 코드 매핑 (한글 -> 코드)
+      // 서버가 한글('매일')을 그대로 받는지, 코드('DAILY')를 받는지 확인 필요.
+      // 보통은 코드로 변환해서 보냅니다. 예시:
+      String repeatCode = '';
+      switch(_repeatOption) {
+        case '매일': repeatCode = 'DAILY'; break;
+        case '매주': repeatCode = 'WEEKLY'; break;
+        case '매월': repeatCode = 'MONTHLY'; break;
+        case '매년': repeatCode = 'YEARLY'; break;
+        default: repeatCode = ''; // 반복 없음
+      }
+
+      // ====================================================
+      // [3] 전송 데이터 맵 구성
+      // ====================================================
+      final Map<String, dynamic> scheduleData = {
+        'cureCalendarSeq': widget.existingSchedule?['cureCalendarSeq'] ?? 0,
         'title': _titleController.text,
         'content': _contentController.text,
         'scheduleType': _selectedScheduleType,
+
+        // --- 기본 일정 ---
         'startDate': startDateStr,
         'endDate': endDateStr,
-        'startTime': _isAllDay ? "00:00" : _startTime, // 시간 null 체크
+        'startTime': _isAllDay ? "00:00" : _startTime,
         'endTime': _isAllDay ? "23:59" : _endTime,
         'isAllDay': _isAllDay,
+
+        // --- 반복 정보 (DB 컬럼 매핑) ---
+        'cureScheduleRepeatYn': _repeatOption == '반복 없음' ? 'N' : 'Y',
+
+        // [수정] DB의 int형 컬럼에 맞춰 정수값 전달
+        'cureScheduleRepeat': repeatCycle,
+
+        // [중요] 계산된 요일 플래그 전달
+        'cureScheduleMonYn': monYn,
+        'cureScheduleTuesYn': tueYn,
+        'cureScheduleWednesYn': wedYn,
+        'cureScheduleThursYn': thuYn,
+        'cureScheduleFriYn': friYn,
+        'cureScheduleSaturYn': satYn,
+        'cureScheduleSunYn': sunYn,
+
+        // 종료일 관련
+        'cureScheduleStopYn': stopYn,
+        'cureScheduleStopDttm': stopDttmStr,
+
+        // --- 기타 ---
         'isPublic': _isPublic,
-        'repeatOption': _repeatOption,
         'isAlarmOn': _isAlarmOn,
         'alarmType': _isAlarmOn ? _alarmType : null,
         'alarmTime': _isAlarmOn ? _alarmTime : null,
@@ -397,6 +511,35 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
     // 삭제 확인 다이얼로그 구현 (필요 시)
   }
 
+  // [추가] 반복 종료일 선택 함수
+  Future<void> _pickRepeatEndDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _repeatEndDate ?? _startDate.add(const Duration(days: 30)),
+      firstDate: _startDate, // 시작일보다 전일 수 없음
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.light().copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: AppColors.mainBtn,
+              onPrimary: Colors.white,
+              onSurface: AppColors.textMainDark,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _repeatEndDate = picked;
+        _isRepeatNoEnd = false; // 날짜를 선택했으므로 '계속 반복' 아님
+        _updateDateTimeControllers();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -616,6 +759,91 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
                   suffixIcon: Icons.repeat,
                 ),
                 const SizedBox(height: 24),
+
+                // [추가] 반복 종료 설정 (반복이 설정된 경우에만 표시)
+                if (_repeatOption != '반복 없음') ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.lightGrey, // 연한 회색 배경 추천
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('반복 종료', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            // '계속 반복' 라디오 버튼
+                            Expanded(
+                              child: RadioListTile<bool>(
+                                title: const Text('계속 반복', style: TextStyle(fontSize: 14)),
+                                value: true,
+                                groupValue: _isRepeatNoEnd,
+                                contentPadding: EdgeInsets.zero,
+                                activeColor: AppColors.mainBtn,
+                                onChanged: (val) {
+                                  setState(() {
+                                    _isRepeatNoEnd = val!;
+                                    _repeatEndDate = null; // 날짜 초기화
+                                    _updateDateTimeControllers();
+                                  });
+                                },
+                              ),
+                            ),
+                            // '날짜 지정' 라디오 버튼
+                            Expanded(
+                              child: RadioListTile<bool>(
+                                title: const Text('날짜 지정', style: TextStyle(fontSize: 14)),
+                                value: false,
+                                groupValue: _isRepeatNoEnd,
+                                contentPadding: EdgeInsets.zero,
+                                activeColor: AppColors.mainBtn,
+                                onChanged: (val) {
+                                  setState(() {
+                                    _isRepeatNoEnd = val!;
+                                    // 기본값 세팅
+                                    _repeatEndDate ??= _endDate.add(const Duration(days: 30));
+                                    _updateDateTimeControllers();
+                                  });
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        // 날짜 지정 선택 시에만 DatePicker 표시
+                        if (!_isRepeatNoEnd)
+                          GestureDetector(
+                            onTap: _pickRepeatEndDate,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                border: Border.all(color: AppColors.inputBorder),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    _repeatEndDateController.text.isEmpty
+                                        ? '종료일 선택'
+                                        : _repeatEndDateController.text,
+                                    style: TextStyle(
+                                      color: _repeatEndDateController.text.isEmpty ? Colors.grey : Colors.black,
+                                    ),
+                                  ),
+                                  const Icon(Icons.calendar_today, size: 18, color: Colors.grey),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
 
                 // 6. 내용 (메모)
                 CustomTextField(
