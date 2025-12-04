@@ -144,6 +144,10 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
       // 반복 없으면 날짜 범위 안에 있으면 True (보통 당일치기)
       return true;
     } else {
+      // ✅ [수정] 매일 반복(daily)인 경우 요일 체크 없이 통과
+      if (schedule.cureScheduleTypeCmcd == 'daily') {
+        return true;
+      }
       // 반복 있으면 요일 체크
       // weekday: 1(월) ~ 7(일)
       switch (date.weekday) {
@@ -254,6 +258,7 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
     if (currentCureSeq != null && currentCureSeq != _lastLoadedCureSeq && !_isLoading) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _loadCureRoom();
+        _loadDailySchedule();
       });
     }
 

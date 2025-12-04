@@ -44,31 +44,77 @@ class CalendarWidget extends StatelessWidget {
           return events[key] ?? [];
         },
 
+        // ✅ [수정] 마커(점) 커스터마이징: 일정이 있으면 무조건 점 1개만 표시
+        calendarBuilders: CalendarBuilders(
+          markerBuilder: (context, date, events) {
+            if (events.isNotEmpty) {
+              return Positioned(
+                bottom: 1,
+                child: Container(
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.activeColor, // 또는 원하는 색상 (예: redAccent)
+                  ),
+                  width: 6.0,
+                  height: 6.0,
+                ),
+              );
+            }
+            return null;
+          },
+          // 2. [추가] 오늘 날짜 동그라미 크기 조절
+          todayBuilder: (context, date, _) {
+            return Center(
+              child: Container(
+                width: 32.0, // 👈 여기서 크기를 조절하세요 (기본값보다 작게 설정됨)
+                height: 32.0,
+                decoration: BoxDecoration(
+                  color: AppColors.mainBtn.withOpacity(0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    '${date.day}',
+                    style: const TextStyle(fontSize: 14.0, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            );
+          },
+
+          // 3. [추가] 선택된 날짜 동그라미 크기 조절
+          selectedBuilder: (context, date, _) {
+            return Center(
+              child: Container(
+                width: 32.0, // 👈 여기서 크기를 조절하세요
+                height: 32.0,
+                decoration: const BoxDecoration(
+                  color: AppColors.mainBtn,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    '${date.day}',
+                    style: const TextStyle(fontSize: 14.0, color: Colors.white),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+
         // 스타일 설정 (기존 코드 유지 및 보완)
         daysOfWeekStyle: const DaysOfWeekStyle(
           weekendStyle: TextStyle(color: Colors.red, fontSize: 14),
           weekdayStyle: TextStyle(fontSize: 14),
         ),
         calendarStyle: CalendarStyle(
-          todayDecoration: BoxDecoration(
-            color: AppColors.mainBtn.withOpacity(0.5), // AppColors 사용 권장
-            shape: BoxShape.circle,
-          ),
-          selectedDecoration: const BoxDecoration(
-            color: AppColors.mainBtn,
-            shape: BoxShape.circle,
-          ),
           defaultTextStyle: const TextStyle(fontSize: 14),
           weekendTextStyle: const TextStyle(fontSize: 14, color: Colors.red),
           todayTextStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
           selectedTextStyle: const TextStyle(fontSize: 14, color: Colors.white),
           cellMargin: const EdgeInsets.all(4.0),
 
-          // 마커(점) 스타일
-          markerDecoration: const BoxDecoration(
-            color: Colors.redAccent, // 점 색상
-            shape: BoxShape.circle,
-          ),
         ),
         headerStyle: const HeaderStyle(
           formatButtonVisible: false,

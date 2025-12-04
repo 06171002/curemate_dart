@@ -73,31 +73,132 @@ class _CalendarScreenState extends State<CalendarScreen> {
     setState(() {
       _events.clear();
 
+      // 1. 현재 보고 있는 달력의 시작일과 종료일 (이번 달 1일 ~ 말일)
+      final firstDayOfMonth = DateTime(date.year, date.month, 1);
+      final lastDayOfMonth = DateTime(date.year, date.month + 1, 0);
+
       for (var data in schedules) {
-        // 백엔드에서 내려준 구조에 따라 schedule 객체 접근
         final scheduleInfo = data['schedule'];
+        if (scheduleInfo == null) continue;
 
-        DateTime? evtDate;
-
-        // 날짜 파싱 로직
-        if (scheduleInfo != null && scheduleInfo['cureScheduleStartDttm'] != null) {
-          evtDate = DateTime.parse(scheduleInfo['cureScheduleStartDttm']);
-        } else if (data['regDttm'] != null) {
-          // 스케줄 정보가 없을 때 예외처리
-          evtDate = DateTime.parse(data['regDttm']);
+        // 일정 시작일 파싱
+        DateTime? sStart;
+        if (scheduleInfo['cureScheduleStartDttm'] != null) {
+          sStart = DateTime.parse(scheduleInfo['cureScheduleStartDttm']);
         }
 
-        if (evtDate != null) {
-          // 시간 정보를 제거하여 Key로 사용 (yyyy-MM-dd 00:00:00)
-          final key = DateTime(evtDate.year, evtDate.month, evtDate.day);
+        // 반복 종료일 파싱 (DB에 값이 없으면 null)
+        DateTime? sStop;
+        if (scheduleInfo['cureScheduleStopDttm'] != null) {
+          sStop = DateTime.parse(scheduleInfo['cureScheduleStopDttm']);
+        }
 
-          if (_events[key] == null) _events[key] = [];
-          _events[key]!.add(data);
+        if (sStart == null) continue;
+
+        // 반복 여부 확인
+        String repeatYn = scheduleInfo['cureScheduleRepeatYn'] ?? 'N';
+        String stopYn = scheduleInfo['cureScheduleStopYn'] ?? 'N';
+
+        // -------------------------------------------------------
+        // ✅ [핵심 수정] 반복 종료일을 고려하여 "검사 종료일" 계산
+        // -------------------------------------------------------
+
+        // 1. 기본 검사 시작일: (일정 시작일 vs 이번달 1일 중 늦은 날)
+        DateTime checkStart = sStart.isAfter(firstDayOfMonth) ? sStart : firstDayOfMonth;
+
+        // 2. 기본 검사 종료일 설정
+        DateTime checkEnd;
+
+        if (repeatYn == 'Y') {
+          // [반복 일정인 경우]
+          // 반복 종료 설정이 있고(Y), 종료일(sStop)도 유효하면 -> 그 날짜가 리미트
+          // 설정이 없으면 -> 이번 달 말일까지 꽉 채워서 검사
+          if (stopYn == 'Y' && sStop != null) {
+            // "반복 종료일"과 "이번 달 말일" 중 더 빠른 날짜까지만 표시
+            checkEnd = sStop.isBefore(lastDayOfMonth) ? sStop : lastDayOfMonth;
+          } else {
+            // 반복 종료일이 없으면 계속 반복되는 것이므로 이번 달 말일까지
+            checkEnd = lastDayOfMonth;
+          }
+        } else {
+          // [단일 일정인 경우]
+          // 일정의 종료일(EndDttm)까지만 표시. (null이면 당일치기로 간주하여 start 사용)
+          DateTime? sEnd = scheduleInfo['cureScheduleEndDttm'] != null
+              ? DateTime.parse(scheduleInfo['cureScheduleEndDttm'])
+              : sStart;
+
+          // 일정 종료일과 이번 달 말일 중 빠른 날짜
+          checkEnd = sEnd.isBefore(lastDayOfMonth) ? sEnd : lastDayOfMonth;
+        }
+
+        // 시간 정보 제거 (yyyy-MM-dd 00:00:00) - 날짜 비교 정확도를 위해
+        checkStart = DateTime(checkStart.year, checkStart.month, checkStart.day);
+        checkEnd = DateTime(checkEnd.year, checkEnd.month, checkEnd.day);
+
+        // 3. 루프 돌며 이벤트 추가 (검사 시작일이 종료일보다 뒤면 루프 안 돔)
+        if (!checkStart.isAfter(checkEnd)) {
+          for (int i = 0; i <= checkEnd.difference(checkStart).inDays; i++) {
+            DateTime targetDate = checkStart.add(Duration(days: i));
+
+            // 요일 규칙 등 상세 조건 체크 (_isScheduleOnDate 함수는 이전 답변 참고)
+            if (_isScheduleOnDate(data, targetDate, sStart)) {
+              final key = DateTime(targetDate.year, targetDate.month, targetDate.day);
+
+              if (_events[key] == null) _events[key] = [];
+              _events[key]!.add(data);
+            }
+          }
         }
       }
     });
   }
 
+  // ✅ [추가] 특정 날짜(targetDate)가 일정 규칙에 부합하는지 확인하는 함수
+  bool _isScheduleOnDate(Map<String, dynamic> data, DateTime targetDate, DateTime sStart) {
+    final schedule = data['schedule'];
+    if (schedule == null) return false;
+
+    // 1. 반복 여부 확인
+    String repeatYn = schedule['cureScheduleRepeatYn'] ?? 'N';
+
+    if (repeatYn == 'N') {
+      // 반복이 없으면 날짜가 정확히 일치해야 함
+      return isSameDay(targetDate, sStart);
+    }
+
+    // 2. 반복 유형 확인 ('daily', 'weekly', 'monthly', 'yearly')
+    String type = schedule['cureScheduleTypeCmcd'] ?? 'daily';
+
+    // 매일 반복: 기간 내 모든 날짜 OK
+    if (type == 'daily') return true;
+
+    // 매주 반복: 요일 체크
+    if (type == 'weekly') {
+      switch (targetDate.weekday) {
+        case DateTime.monday: return schedule['cureScheduleMonYn'] == 'Y';
+        case DateTime.tuesday: return schedule['cureScheduleTuesYn'] == 'Y';
+        case DateTime.wednesday: return schedule['cureScheduleWednesYn'] == 'Y';
+        case DateTime.thursday: return schedule['cureScheduleThursYn'] == 'Y';
+        case DateTime.friday: return schedule['cureScheduleFriYn'] == 'Y';
+        case DateTime.saturday: return schedule['cureScheduleSaturYn'] == 'Y';
+        case DateTime.sunday: return schedule['cureScheduleSunYn'] == 'Y';
+        default: return false;
+      }
+    }
+
+    // 매월 반복: '일(day)'이 같아야 함 (예: 매월 15일)
+    if (type == 'monthly') {
+      return targetDate.day == sStart.day;
+    }
+
+    // 매년 반복: '월'과 '일'이 같아야 함 (예: 매년 12월 25일)
+    if (type == 'yearly') {
+      return targetDate.month == sStart.month && targetDate.day == sStart.day;
+    }
+
+    // 그 외 타입은 기본적으로 포함하지 않음
+    return false;
+  }
   // 선택된 날짜의 일정 리스트 가져오기
   List<Map<String, dynamic>> _getEventsForDay(DateTime day) {
     final key = DateTime(day.year, day.month, day.day);
@@ -160,6 +261,30 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
   }
 
+  IconData _getIconForType(String? typeCode) {
+    switch (typeCode) {
+      case 'medicine':
+        return Icons.medication_outlined; // 약
+      case 'treatment':
+        return Icons.local_hospital_outlined; // 병원
+      case 'test':
+        return Icons.biotech_outlined; // 검사
+      default:
+        return Icons.event_note_outlined; // 기타
+    }
+  }
+
+  // ✅ [추가] 시간 포맷팅 (예: 14:00 -> 오후 2:00)
+  String _formatTime(String timeStr) {
+    if (timeStr.length < 5) return timeStr;
+    try {
+      final dt = DateFormat('HH:mm').parse(timeStr.substring(0, 5));
+      return DateFormat('a h:mm', 'ko').format(dt);
+    } catch (e) {
+      return timeStr;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // 1. Provider의 값 변경 감지 (구독)
@@ -182,7 +307,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final selectedEvents = _selectedDay != null ? _getEventsForDay(_selectedDay!) : [];
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.lightBackground,
       body: Column(
         children: [
           // 1. 달력 위젯 (데이터를 주입받음)
@@ -203,7 +328,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
             },
           ),
 
-          const Divider(height: 1, thickness: 1, color: Color(0xFFEEEEEE)),
+          const SizedBox(height: 8),
 
           // 2. 하단 일정 리스트 (동일한 데이터를 사용)
           Expanded(
@@ -223,21 +348,27 @@ class _CalendarScreenState extends State<CalendarScreen> {
               itemBuilder: (context, index) {
                 final schedule = selectedEvents[index];
 
+                // ✅ [수정] 변수 추출을 GestureDetector 위로 올립니다.
+                final scheduleInfo = schedule['schedule'] ?? {};
+                String startFullDttm = scheduleInfo['cureScheduleStartDttm'] ?? '';
+
+                // 화면 표시 & onTap 양쪽에서 쓸 수 있도록 여기서 미리 계산
+                String startTime = startFullDttm.length > 16
+                    ? startFullDttm.substring(11, 16)
+                    : '';
+
                 return GestureDetector(
                   onTap: () {
-                    // [중요] 1. CalendarScreen의 데이터를 NewScheduleScreen 형식에 맞게 변환
-                    final scheduleInfo = schedule['schedule'] ?? {};
 
-                    // 날짜/시간 문자열 파싱 (예: "2025-05-05 14:00:00")
-                    String startFullDttm = scheduleInfo['cureScheduleStartDttm'] ?? '';
                     String endFullDttm = scheduleInfo['cureScheduleEndDttm'] ?? '';
 
                     // 날짜와 시간을 분리 (데이터 형식이 "yyyy-MM-dd HH:mm:ss"라고 가정)
                     String startDate = startFullDttm.length >= 10 ? startFullDttm.substring(0, 10) : '';
-                    String startTime = startFullDttm.length > 16 ? startFullDttm.substring(11, 16) : '00:00';
                     String endDate = endFullDttm.length >= 10 ? endFullDttm.substring(0, 10) : '';
                     String endTime = endFullDttm.length > 16 ? endFullDttm.substring(11, 16) : '00:00';
 
+                    // startTime이 비어있으면 기본값 처리 (NewScheduleScreen 전달용)
+                    String startTimeForNav = startTime.isEmpty ? '00:00' : startTime;
                     // [추가] 알람 정보 처리 로직
                     // 백엔드 응답 구조에 따라 키 이름('alramList' 등) 확인 필요
                     List<dynamic> alramList = schedule['alramList'] ?? schedule['alrams'] ?? [];
@@ -319,17 +450,58 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.grey[200]!),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        Text(
-                          schedule['cureCalendarNm'] ?? '제목 없음',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        // 왼쪽 아이콘 박스
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: AppColors.lightBackground, // 연한 배경색
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            _getIconForType(schedule['cureCalendarTypeCmcd']),
+                            color: AppColors.mainBtn, // 포인트 색상
+                            size: 24,
+                          ),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          schedule['cureCalendarDesc'] ?? '',
-                          style: const TextStyle(color: Colors.grey, fontSize: 14),
+                        const SizedBox(width: 16),
+
+                        // 가운데 텍스트 (제목 & 시간)
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                schedule['cureCalendarNm'] ?? '제목 없음',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  color: Colors.black87,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                startTime.isNotEmpty
+                                    ? _formatTime(startTime)
+                                    : '하루 종일',
+                                style: const TextStyle(
+                                  color: AppColors.darkBlue,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // 오른쪽 화살표 (선택 사항)
+                        const Icon(
+                          Icons.chevron_right,
+                          color: Colors.grey,
                         ),
                       ],
                     ),
