@@ -115,6 +115,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
           }
         }
       }
+
+      // ✅ [추가] 2. 모든 날짜의 일정 리스트를 시간 순서대로 정렬
+      _events.forEach((date, scheduleList) {
+        scheduleList.sort((a, b) {
+          final startA = a['schedule']?['cureScheduleStartDttm'] ?? '';
+          final startB = b['schedule']?['cureScheduleStartDttm'] ?? '';
+          // 문자열 비교 (yyyy-MM-dd HH:mm:ss 형식이므로 시간순 정렬됨)
+          return startA.compareTo(startB);
+        });
+      });
     });
   }
 
@@ -125,6 +135,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     String repeatYn = schedule['cureScheduleRepeatYn'] ?? 'N';
     String type = schedule['cureScheduleTypeCmcd'] ?? 'daily';
+
+    // ✅ [수정] '매일 반복'이 아닐 때만 시작일 이전인지 체크 (매일 반복이면 과거라도 통과)
+    if (type != 'daily') {
+      final DateTime startDateOnly = DateTime(sStart.year, sStart.month, sStart.day);
+      if (targetDate.isBefore(startDateOnly)) {
+        return false;
+      }
+    }
 
     // 1. 반복이 없는 경우: 날짜 범위 내에 있는지 확인
     if (repeatYn == 'N') {
@@ -267,7 +285,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   IconData _getIconForType(String? typeCode) {
     switch (typeCode) {
       case 'medicine':
-        return Icons.medication_outlined; // 약
+        return Icons.healing_outlined; // 약
       case 'treatment':
         return Icons.local_hospital_outlined; // 병원
       case 'test':

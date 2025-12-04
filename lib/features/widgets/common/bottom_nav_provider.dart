@@ -18,6 +18,16 @@ class BottomNavProvider with ChangeNotifier {
   bool get isMainMode => _selectedCurer == null;
   bool get isCureMode => _selectedCurer != null;
 
+  // ✅ [추가] 데이터 변경 감지용 변수
+  DateTime _lastScheduleUpdate = DateTime.now();
+  DateTime get lastScheduleUpdate => _lastScheduleUpdate;
+
+  // ✅ [추가] 갱신 알림 메서드
+  void notifyScheduleUpdate() {
+    _lastScheduleUpdate = DateTime.now();
+    notifyListeners(); // 이걸 호출하면 이 Provider를 보고 있는 모든 화면이 rebuild 됨
+  }
+
   // 탭 변경 (순수하게 인덱스만 변경)
   void changeIndex(int index) {
     _currentIndex = index;

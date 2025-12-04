@@ -46,6 +46,9 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
 
   int? _lastLoadedCureSeq;
 
+  // ✅ [추가] 마지막으로 데이터를 로드했을 때의 시간 기록
+  DateTime? _lastUpdateSeen;
+
   // 일정을 담을 변수 (기존 scheduleItems 대신 사용하거나 매핑)
   List<CureCalendarModel> _allMonthSchedules = [];
   List<CureCalendarModel> _todaySchedules = [];
@@ -103,6 +106,16 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
         return _isScheduleOnDate(schedule, now);
       }).toList();
 
+      // ✅ [추가] 3. 시간 순 정렬 (오전 9시 -> 오후 2시 순서)
+      todayList.sort((a, b) {
+        final startA = a.schedule?.cureScheduleStartDttm ?? '';
+        final startB = b.schedule?.cureScheduleStartDttm ?? '';
+
+        // 날짜 문자열끼리 비교 (문자열 비교로도 시간 순 정렬 가능)
+        // 예: "2024-05-20 09:00:00" vs "2024-05-20 14:00:00"
+        return startA.compareTo(startB);
+      });
+
       setState(() {
         _allMonthSchedules = result;
         _todaySchedules = todayList;
@@ -114,6 +127,7 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
             'title': item.cureCalendarNm,
             'time': _formatTime(item.schedule?.cureScheduleStartDttm), // 시간 포맷팅 필요
             'isDone': false, // 수행 여부 데이터가 있다면 연동
+            'type': item.cureCalendarTypeCmcd,
           });
         }
       });
@@ -137,6 +151,17 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
 
     if (targetDate.isBefore(startDate) || targetDate.isAfter(endDate)) {
       return false;
+    }
+
+    if (schedule.cureScheduleRepeatYn == 'Y' && schedule.cureScheduleStopYn == 'Y') {
+      final stop = DateTime.tryParse(schedule.cureScheduleStopDttm ?? '');
+      if (stop != null) {
+        final stopDate = DateTime(stop.year, stop.month, stop.day);
+        // 타겟 날짜가 반복 종료일보다 미래라면 표시하지 않음
+        if (targetDate.isAfter(stopDate)) {
+          return false;
+        }
+      }
     }
 
     // 2. 반복 여부 체크
@@ -171,6 +196,20 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
       return DateFormat('a h:mm', 'ko').format(dt); // 예: 오후 2:00
     } catch (e) {
       return '';
+    }
+  }
+
+  // ✅ [추가] 일정 타입에 따른 아이콘 반환 함수
+  IconData _getIconForType(String? typeCode) {
+    switch (typeCode) {
+      case 'medicine':
+        return Icons.healing_outlined; // 약 (반창고 모양)
+      case 'treatment':
+        return Icons.local_hospital_outlined; // 병원
+      case 'test':
+        return Icons.biotech_outlined; // 검사
+      default:
+        return Icons.event_note_outlined; // 기타
     }
   }
 
@@ -283,6 +322,20 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
 
     final bool hasPatient = _patient != null;
     final bool hasSchedule = hasPatient && scheduleItems.isNotEmpty;
+
+    // ✅ [추가] 일정 업데이트 신호 감지 로직
+    // Provider의 시간(nav.lastScheduleUpdate)이 내 기록(_lastUpdateSeen)과 다르면 갱신 필요
+    if (_lastUpdateSeen != nav.lastScheduleUpdate) {
+      _lastUpdateSeen = nav.lastScheduleUpdate;
+
+      // build 도중에 setState를 부를 수 없으므로 addPostFrameCallback 사용
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadDailySchedule(); // 일정 목록 다시 불러오기
+
+        // 만약 큐어룸 정보 등도 같이 갱신해야 한다면 아래도 호출
+        // _loadCureRoom();
+      });
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -601,6 +654,8 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
               item['title'] as String,
               item['time'] as String,
               item['isDone'] as bool,
+              // ✅ [추가] 저장해둔 타입 전달 (없으면 null)
+              item['type'] as String?,
                   (bool newValue) {
                 setState(() {
                   scheduleItems[index]['isDone'] = newValue;
@@ -609,25 +664,40 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
             );
           }).toList(),
 
-          const SizedBox(height: 8),
-
-          Center(
-            child: TextButton(
-              onPressed: () {
-                setState(() {
-                  _showAllSchedules = !_showAllSchedules;
-                });
-              },
-              child: Text(
-                _showAllSchedules ? '접기' : '펼쳐보기',
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.darkBlue,
+          // ✅ [수정] 전체 일정이 3개를 초과하는 경우에만 버튼 표시
+          if (scheduleItems.length > 3) ...[
+            const SizedBox(height: 8),
+            Center(
+              child: TextButton(
+                onPressed: () {
+                  setState(() {
+                    _showAllSchedules = !_showAllSchedules;
+                  });
+                },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _showAllSchedules ? '접기' : '펼쳐보기',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.darkBlue,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      _showAllSchedules
+                          ? Icons.keyboard_arrow_up
+                          : Icons.keyboard_arrow_down,
+                      size: 18,
+                      color: AppColors.darkBlue,
+                    ),
+                  ],
                 ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -696,6 +766,7 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
       String title,
       String time,
       bool isDone,
+      String? type,
       ValueChanged<bool> onToggle,
       ) {
     return Padding(
@@ -714,8 +785,8 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
                   border: Border.all(color: AppColors.lightGrey),
                 ),
                 child: Icon(
-                  title.contains('약') ? Icons.calendar_month : Icons.event_note,
-                  color: AppColors.iconColor,
+                  _getIconForType(type),
+                  color: const Color(0xFFA0C4FF),
                 ),
               ),
               const SizedBox(width: 16),

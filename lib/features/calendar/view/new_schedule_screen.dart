@@ -351,7 +351,7 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
     final bool isMainMode = navProvider.isMainMode;
 
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedPatientId == null && !_isEditing && _selectedCategory != ScheduleCategory.personal) {
+    if (_selectedPatientId == null && !_isEditing && _selectedCategory != ScheduleCategory.personal && isMainMode) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('환자를 선택해주세요.')));
       return;
     }
@@ -492,6 +492,9 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
       await _calendarService.saveSchedule(scheduleData);
 
       if (mounted) {
+        // ✅ [추가] 저장 성공 시 Provider에게 갱신 신호 보내기
+        context.read<BottomNavProvider>().notifyScheduleUpdate();
+
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('일정이 ${_isEditing ? '수정' : '저장'}되었습니다.')),
