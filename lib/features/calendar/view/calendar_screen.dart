@@ -70,83 +70,48 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     if (!mounted) return;
 
+    // setState 내부 로직 수정
     setState(() {
       _events.clear();
 
-      // 1. 현재 보고 있는 달력의 시작일과 종료일 (이번 달 1일 ~ 말일)
       final firstDayOfMonth = DateTime(date.year, date.month, 1);
       final lastDayOfMonth = DateTime(date.year, date.month + 1, 0);
+
+      // 이번 달의 날짜 수만큼 반복 (최대 31번)
+      int daysInMonth = lastDayOfMonth.day;
 
       for (var data in schedules) {
         final scheduleInfo = data['schedule'];
         if (scheduleInfo == null) continue;
 
-        // 일정 시작일 파싱
         DateTime? sStart;
         if (scheduleInfo['cureScheduleStartDttm'] != null) {
           sStart = DateTime.parse(scheduleInfo['cureScheduleStartDttm']);
         }
+        if (sStart == null) continue;
 
-        // 반복 종료일 파싱 (DB에 값이 없으면 null)
+        // 반복 종료일 체크
         DateTime? sStop;
         if (scheduleInfo['cureScheduleStopDttm'] != null) {
           sStop = DateTime.parse(scheduleInfo['cureScheduleStopDttm']);
         }
-
-        if (sStart == null) continue;
-
-        // 반복 여부 확인
-        String repeatYn = scheduleInfo['cureScheduleRepeatYn'] ?? 'N';
         String stopYn = scheduleInfo['cureScheduleStopYn'] ?? 'N';
 
-        // -------------------------------------------------------
-        // ✅ [핵심 수정] 반복 종료일을 고려하여 "검사 종료일" 계산
-        // -------------------------------------------------------
+        // 📅 이번 달 1일부터 말일까지 하루씩 돌면서 이 일정이 해당되는지 검사
+        for (int i = 0; i < daysInMonth; i++) {
+          DateTime targetDate = firstDayOfMonth.add(Duration(days: i));
 
-        // 1. 기본 검사 시작일: (일정 시작일 vs 이번달 1일 중 늦은 날)
-        DateTime checkStart = sStart.isAfter(firstDayOfMonth) ? sStart : firstDayOfMonth;
-
-        // 2. 기본 검사 종료일 설정
-        DateTime checkEnd;
-
-        if (repeatYn == 'Y') {
-          // [반복 일정인 경우]
-          // 반복 종료 설정이 있고(Y), 종료일(sStop)도 유효하면 -> 그 날짜가 리미트
-          // 설정이 없으면 -> 이번 달 말일까지 꽉 채워서 검사
+          // 1. 반복 종료일 지났으면 패스
           if (stopYn == 'Y' && sStop != null) {
-            // "반복 종료일"과 "이번 달 말일" 중 더 빠른 날짜까지만 표시
-            checkEnd = sStop.isBefore(lastDayOfMonth) ? sStop : lastDayOfMonth;
-          } else {
-            // 반복 종료일이 없으면 계속 반복되는 것이므로 이번 달 말일까지
-            checkEnd = lastDayOfMonth;
+            // 시간까지 정확히 비교하려면 isAfter 사용
+            if (targetDate.isAfter(sStop)) continue;
           }
-        } else {
-          // [단일 일정인 경우]
-          // 일정의 종료일(EndDttm)까지만 표시. (null이면 당일치기로 간주하여 start 사용)
-          DateTime? sEnd = scheduleInfo['cureScheduleEndDttm'] != null
-              ? DateTime.parse(scheduleInfo['cureScheduleEndDttm'])
-              : sStart;
 
-          // 일정 종료일과 이번 달 말일 중 빠른 날짜
-          checkEnd = sEnd.isBefore(lastDayOfMonth) ? sEnd : lastDayOfMonth;
-        }
-
-        // 시간 정보 제거 (yyyy-MM-dd 00:00:00) - 날짜 비교 정확도를 위해
-        checkStart = DateTime(checkStart.year, checkStart.month, checkStart.day);
-        checkEnd = DateTime(checkEnd.year, checkEnd.month, checkEnd.day);
-
-        // 3. 루프 돌며 이벤트 추가 (검사 시작일이 종료일보다 뒤면 루프 안 돔)
-        if (!checkStart.isAfter(checkEnd)) {
-          for (int i = 0; i <= checkEnd.difference(checkStart).inDays; i++) {
-            DateTime targetDate = checkStart.add(Duration(days: i));
-
-            // 요일 규칙 등 상세 조건 체크 (_isScheduleOnDate 함수는 이전 답변 참고)
-            if (_isScheduleOnDate(data, targetDate, sStart)) {
-              final key = DateTime(targetDate.year, targetDate.month, targetDate.day);
-
-              if (_events[key] == null) _events[key] = [];
-              _events[key]!.add(data);
-            }
+          // 2. 날짜 매칭 확인 (_isScheduleOnDate 호출)
+          if (_isScheduleOnDate(data, targetDate, sStart)) {
+            final key = DateTime(targetDate.year, targetDate.month, targetDate.day);
+            if (_events[key] == null) _events[key] = [];
+            _events[key]!.add(data);
           }
         }
       }
@@ -158,21 +123,27 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final schedule = data['schedule'];
     if (schedule == null) return false;
 
-    // 1. 반복 여부 확인
     String repeatYn = schedule['cureScheduleRepeatYn'] ?? 'N';
-
-    if (repeatYn == 'N') {
-      // 반복이 없으면 날짜가 정확히 일치해야 함
-      return isSameDay(targetDate, sStart);
-    }
-
-    // 2. 반복 유형 확인 ('daily', 'weekly', 'monthly', 'yearly')
     String type = schedule['cureScheduleTypeCmcd'] ?? 'daily';
 
-    // 매일 반복: 기간 내 모든 날짜 OK
+    // 1. 반복이 없는 경우: 날짜 범위 내에 있는지 확인
+    if (repeatYn == 'N') {
+      DateTime? sEnd = schedule['cureScheduleEndDttm'] != null
+          ? DateTime.parse(schedule['cureScheduleEndDttm'])
+          : sStart;
+
+      // 시간 제거 (yyyy-MM-dd)
+      DateTime start = DateTime(sStart.year, sStart.month, sStart.day);
+      DateTime end = DateTime(sEnd.year, sEnd.month, sEnd.day);
+      DateTime target = DateTime(targetDate.year, targetDate.month, targetDate.day);
+
+      return !target.isBefore(start) && !target.isAfter(end);
+    }
+
+    // 2. 매일 반복
     if (type == 'daily') return true;
 
-    // 매주 반복: 요일 체크
+    // 3. 매주 반복 (요일 체크)
     if (type == 'weekly') {
       switch (targetDate.weekday) {
         case DateTime.monday: return schedule['cureScheduleMonYn'] == 'Y';
@@ -186,17 +157,49 @@ class _CalendarScreenState extends State<CalendarScreen> {
       }
     }
 
-    // 매월 반복: '일(day)'이 같아야 함 (예: 매월 15일)
+    // 4. 매월 반복 (기간 체크 로직 추가)
     if (type == 'monthly') {
-      return targetDate.day == sStart.day;
+      // ① 일정의 기간(일수) 계산 (예: 12/4 ~ 12/8 = 4일 차이)
+      DateTime? sEnd = schedule['cureScheduleEndDttm'] != null
+          ? DateTime.parse(schedule['cureScheduleEndDttm'])
+          : sStart;
+      int durationDays = sEnd.difference(sStart).inDays;
+
+      // ② "이번 달(targetDate의 월)"에서의 시작일 가상 생성
+      // 예: target이 1월 5일이면 -> 가상 시작일은 1월 4일
+      // (단, 31일 등 날짜가 없는 달 예외 처리 필요)
+      try {
+        DateTime virtualStart = DateTime(targetDate.year, targetDate.month, sStart.day);
+        DateTime virtualEnd = virtualStart.add(Duration(days: durationDays));
+
+        // ③ targetDate가 "가상 시작일 ~ 가상 종료일" 사이에 있는지 확인
+        DateTime target = DateTime(targetDate.year, targetDate.month, targetDate.day);
+        return !target.isBefore(virtualStart) && !target.isAfter(virtualEnd);
+      } catch (e) {
+        // 해당 월에 시작일(예: 31일)이 없는 경우 표시 안 함
+        return false;
+      }
     }
 
-    // 매년 반복: '월'과 '일'이 같아야 함 (예: 매년 12월 25일)
+    // 5. 매년 반복
     if (type == 'yearly') {
-      return targetDate.month == sStart.month && targetDate.day == sStart.day;
+      // 매월과 비슷하게 연도만 targetDate.year로 바꿔서 범위 체크하면 됩니다.
+      DateTime? sEnd = schedule['cureScheduleEndDttm'] != null
+          ? DateTime.parse(schedule['cureScheduleEndDttm'])
+          : sStart;
+      int durationDays = sEnd.difference(sStart).inDays;
+
+      try {
+        DateTime virtualStart = DateTime(targetDate.year, sStart.month, sStart.day);
+        DateTime virtualEnd = virtualStart.add(Duration(days: durationDays));
+
+        DateTime target = DateTime(targetDate.year, targetDate.month, targetDate.day);
+        return !target.isBefore(virtualStart) && !target.isAfter(virtualEnd);
+      } catch (e) {
+        return false;
+      }
     }
 
-    // 그 외 타입은 기본적으로 포함하지 않음
     return false;
   }
   // 선택된 날짜의 일정 리스트 가져오기

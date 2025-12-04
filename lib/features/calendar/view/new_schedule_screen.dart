@@ -360,13 +360,14 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // 1. 기본 날짜 문자열 (화면에 입력된 값)
       String startDateStr = DateFormat('yyyy-MM-dd').format(_startDate);
       String endDateStr = DateFormat('yyyy-MM-dd').format(_endDate);
 
       // ====================================================
-      // [1] 반복 주기(int) 및 요일 플래그(Y/N) 계산 로직 추가
+      // [1] 반복 주기 및 요일 플래그 자동 계산 로직 (수정됨)
       // ====================================================
-      int repeatCycle = 0; // DB: cure_schedule_repeat (int)
+      int repeatCycle = 0;
       String monYn = 'N';
       String tueYn = 'N';
       String wedYn = 'N';
@@ -375,66 +376,69 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
       String satYn = 'N';
       String sunYn = 'N';
 
-      // 반복이 설정된 경우
       if (_repeatOption != '반복 없음') {
-        repeatCycle = 1; // 기본적으로 '매'주, '매'일 이므로 주기는 1로 설정
+        repeatCycle = 1;
 
         if (_repeatOption == '매일') {
-          // 매일이면 모든 요일 Y
+          // 매일: 모든 요일 Y
           monYn = 'Y'; tueYn = 'Y'; wedYn = 'Y'; thuYn = 'Y'; friYn = 'Y'; satYn = 'Y'; sunYn = 'Y';
+          // 매일 반복일 때도 "하루짜리"가 반복되게 하려면 종료일을 시작일로 맞춰주는 것이 좋습니다.
+          endDateStr = startDateStr;
         }
         else if (_repeatOption == '매주') {
-          // 매주면 '시작일'의 요일을 찾아 해당 요일만 Y로 설정
-          // _startDate.weekday: 1(월) ~ 7(일)
-          switch (_startDate.weekday) {
-            case 1: monYn = 'Y'; break;
-            case 2: tueYn = 'Y'; break;
-            case 3: wedYn = 'Y'; break;
-            case 4: thuYn = 'Y'; break;
-            case 5: friYn = 'Y'; break;
-            case 6: satYn = 'Y'; break;
-            case 7: sunYn = 'Y'; break;
+          // ✅ [핵심 로직] "기간"을 선택했더라도, DB에는 "하루짜리 일정"이 "해당 요일마다" 반복되는 것으로 저장
+
+          // 1. DB에 보낼 종료일은 시작일과 같게 강제 설정 (1일짜리 일정으로 만듦)
+          endDateStr = startDateStr;
+
+          // 2. 사용자가 선택한 기간(_startDate ~ _endDate) 사이의 모든 날짜를 확인하여 요일 체크
+          int daysDiff = _endDate.difference(_startDate).inDays;
+
+          // 날짜 차이만큼 돌면서 요일 플래그 켜기
+          // (예: 목요일 시작, 월요일 종료 -> 목, 금, 토, 일, 월 체크됨)
+          for (int i = 0; i <= (daysDiff < 0 ? 0 : daysDiff); i++) {
+            DateTime targetDate = _startDate.add(Duration(days: i));
+            switch (targetDate.weekday) {
+              case 1: monYn = 'Y'; break; // 월
+              case 2: tueYn = 'Y'; break; // 화
+              case 3: wedYn = 'Y'; break; // 수
+              case 4: thuYn = 'Y'; break; // 목
+              case 5: friYn = 'Y'; break; // 금
+              case 6: satYn = 'Y'; break; // 토
+              case 7: sunYn = 'Y'; break; // 일
+            }
           }
         }
-        // '매월', '매년'은 보통 요일 플래그를 쓰지 않고 날짜(일)를 기준으로 하므로 N 유지
+        // 매월, 매년은 기존 날짜 유지
       }
 
-      // [중요] 반복 종료일 처리 로직
-      String stopYn = 'N'; // 기본: 반복 종료일 없음
+      // ====================================================
+      // [2] 반복 종료일 처리
+      // ====================================================
+      String stopYn = 'N';
       String? stopDttmStr;
 
       if (_repeatOption != '반복 없음') {
         if (_isRepeatNoEnd) {
           stopYn = 'N';
-          // SQL 쿼리상 BETWEEN 조건에 걸리게 하려면 아주 먼 미래 날짜를 넣어주는게 안전합니다.
           stopDttmStr = "4999-12-31 23:59:59";
         } else {
           stopYn = 'Y';
-          // 사용자가 지정한 날짜의 끝 시간으로 설정
           if (_repeatEndDate != null) {
             stopDttmStr = "${DateFormat('yyyy-MM-dd').format(_repeatEndDate!)} 23:59:59";
           }
         }
       } else {
-        // 반복이 아닐 경우, stopDttm은 해당 일정의 종료일과 같게 설정하거나 null
+        // 반복 없음: 종료일시는 일정의 종료시간과 동일
         stopYn = 'Y';
-        stopDttmStr = _isAllDay ? "$endDateStr 23:59:59" : "$endDateStr $_endTime:00";
-      }
-
-      // [추가] 반복 코드 매핑 (한글 -> 코드)
-      // 서버가 한글('매일')을 그대로 받는지, 코드('DAILY')를 받는지 확인 필요.
-      // 보통은 코드로 변환해서 보냅니다. 예시:
-      String repeatCode = '';
-      switch(_repeatOption) {
-        case '매일': repeatCode = 'DAILY'; break;
-        case '매주': repeatCode = 'WEEKLY'; break;
-        case '매월': repeatCode = 'MONTHLY'; break;
-        case '매년': repeatCode = 'YEARLY'; break;
-        default: repeatCode = ''; // 반복 없음
+        // endDateStr은 위에서 수정되었을 수 있으므로, _endDate(원본)를 쓸지 결정해야 함.
+        // 반복 없음일 땐 원본 날짜 그대로 사용
+        String finalEndDate = DateFormat('yyyy-MM-dd').format(_endDate);
+        stopDttmStr = _isAllDay ? "$finalEndDate 23:59:59" : "$finalEndDate $_endTime:00";
       }
 
       // ====================================================
-      // [3] 전송 데이터 맵 구성
+      // [3] 데이터 전송
       // ====================================================
       final Map<String, dynamic> scheduleData = {
         'cureCalendarSeq': widget.existingSchedule?['cureCalendarSeq'] ?? 0,
@@ -442,20 +446,17 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
         'content': _contentController.text,
         'scheduleType': _selectedScheduleType,
 
-        // --- 기본 일정 ---
+        // 날짜 정보 (매주/매일인 경우 endDateStr이 startDateStr로 변경된 상태로 전송됨)
         'startDate': startDateStr,
         'endDate': endDateStr,
         'startTime': _isAllDay ? "00:00" : _startTime,
         'endTime': _isAllDay ? "23:59" : _endTime,
         'isAllDay': _isAllDay,
 
-        // --- 반복 정보 (DB 컬럼 매핑) ---
         'cureScheduleRepeatYn': _repeatOption == '반복 없음' ? 'N' : 'Y',
-
-        // [수정] DB의 int형 컬럼에 맞춰 정수값 전달
         'cureScheduleRepeat': repeatCycle,
 
-        // [중요] 계산된 요일 플래그 전달
+        // 계산된 요일 플래그
         'cureScheduleMonYn': monYn,
         'cureScheduleTuesYn': tueYn,
         'cureScheduleWednesYn': wedYn,
@@ -464,18 +465,16 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
         'cureScheduleSaturYn': satYn,
         'cureScheduleSunYn': sunYn,
 
-        // 종료일 관련
         'cureScheduleStopYn': stopYn,
         'cureScheduleStopDttm': stopDttmStr,
 
-        // --- 기타 ---
         'isPublic': _isPublic,
         'isAlarmOn': _isAlarmOn,
         'alarmType': _isAlarmOn ? _alarmType : null,
         'alarmTime': _isAlarmOn ? _alarmTime : null,
       };
 
-      // 2. 환자/개인 일정 분기 로직 (cureSeq, patientId 설정)
+      // 큐어룸/환자 정보 매핑
       if (_selectedCategory == ScheduleCategory.personal) {
         scheduleData['cureSeq'] = 0;
         scheduleData['patientId'] = 0;
@@ -485,11 +484,10 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
           scheduleData['patientId'] = _selectedPatientId;
         } else {
           scheduleData['cureSeq'] = navProvider.cureSeq;
-          scheduleData['patientId'] = 0; // 필요 시 수정
+          scheduleData['patientId'] = 0;
         }
       }
 
-      // 3. 서비스 호출 (통합된 메서드 하나만 사용)
       await _calendarService.saveSchedule(scheduleData);
 
       if (mounted) {
