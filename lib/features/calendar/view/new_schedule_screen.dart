@@ -117,6 +117,31 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
         _endTime = "10:00";
       }
 
+      // ▼ [수정] 환자 ID가 있으면 '환자 일정' 모드로 자동 전환하고 ID 설정
+      if (schedule.containsKey('patient_id') && schedule['patient_id'] != null && schedule['patient_id'] != 0) {
+        _selectedPatientId = schedule['patient_id'];
+        _selectedCategory = ScheduleCategory.patient; // ★ 핵심: 카테고리를 '환자'로 변경
+      } else {
+        _selectedCategory = ScheduleCategory.personal;
+      }
+
+      // ▼ [추가] 알람 정보 초기화 코드
+      if (schedule.containsKey('isAlarmOn')) {
+        _isAlarmOn = schedule['isAlarmOn'];
+        _alarmTime = schedule['alarmTime'] ?? '10분 전';
+        _alarmType = schedule['alarmType'] ?? '푸시';
+      }
+
+      // ▼▼▼ [추가] 반복 설정 값 받기 ▼▼▼
+      if (schedule.containsKey('repeatOption')) {
+        _repeatOption = schedule['repeatOption'];
+      }
+
+      // [추가] cure_seq 값 받기
+      if (schedule.containsKey('cure_seq')) {
+        _selectedCureSeq = schedule['cure_seq'];
+      }
+
       if (schedule.containsKey('patient_id')) {
         _selectedPatientId = schedule['patient_id'];
       }
@@ -316,15 +341,19 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
       String startDateStr = DateFormat('yyyy-MM-dd').format(_startDate);
       String endDateStr = DateFormat('yyyy-MM-dd').format(_endDate);
 
+      // 1. 전송할 데이터 맵 구성
       final Map<String, dynamic> scheduleData = {
+        // [추가] 수정 시 필요한 ID (없으면 0)
+        'cureCalendarSeq': widget.existingSchedule?['cureCalendarSeq'] ?? 0,
+
         'title': _titleController.text,
         'content': _contentController.text,
         'scheduleType': _selectedScheduleType,
         'startDate': startDateStr,
         'endDate': endDateStr,
+        'startTime': _isAllDay ? "00:00" : _startTime, // 시간 null 체크
+        'endTime': _isAllDay ? "23:59" : _endTime,
         'isAllDay': _isAllDay,
-        'startTime': _isAllDay ? null : _startTime,
-        'endTime': _isAllDay ? null : _endTime,
         'isPublic': _isPublic,
         'repeatOption': _repeatOption,
         'isAlarmOn': _isAlarmOn,
@@ -332,35 +361,22 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
         'alarmTime': _isAlarmOn ? _alarmTime : null,
       };
 
+      // 2. 환자/개인 일정 분기 로직 (cureSeq, patientId 설정)
       if (_selectedCategory == ScheduleCategory.personal) {
-        // [개인 일정]
-        // 큐어룸이나 환자 정보 없이 내 개인 일정으로 저장
-        // (백엔드 로직에 따라 cureSeq를 0이나 null로 보냄)
         scheduleData['cureSeq'] = 0;
         scheduleData['patientId'] = 0;
-        scheduleData['scheduleType'] = 'personal'; // 필요 시 별도 타입 지정
-
       } else {
-        // 2. 환자 일정
-        scheduleData['scheduleType'] = _selectedScheduleType; // 진료, 복약 등
-
         if (isMainMode) {
-          // 메인 모드: 직접 선택한 환자와 큐어룸 정보 사용
           scheduleData['cureSeq'] = _selectedCureSeq;
           scheduleData['patientId'] = _selectedPatientId;
         } else {
-          // 큐어룸 모드: 현재 진입해있는 큐어룸 정보 자동 사용
           scheduleData['cureSeq'] = navProvider.cureSeq;
-          scheduleData['patientId'] = 0; // 특정 환자를 지정하지 않는 경우 (필요 시 수정)
+          scheduleData['patientId'] = 0; // 필요 시 수정
         }
       }
 
-      if (!_isEditing) {
-        await _calendarService.createSchedule(scheduleData);
-      } else {
-        final int scheduleSeq = widget.existingSchedule!['schedule_seq'];
-        await _calendarService.updateSchedule(scheduleSeq, scheduleData);
-      }
+      // 3. 서비스 호출 (통합된 메서드 하나만 사용)
+      await _calendarService.saveSchedule(scheduleData);
 
       if (mounted) {
         Navigator.pop(context, true);
@@ -664,27 +680,64 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
                 ),
                 const SizedBox(height: 40),
 
-                // 8. 저장 버튼
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _saveSchedule,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.mainBtn,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    elevation: 0,
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Text(_isEditing ? '수정 완료' : '일정 등록', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                ),
+                // 8. 버튼 영역 (수정 모드일 땐 반반, 신규일 땐 꽉 채우기)
+                if (_isEditing)
+                  Row(
+                    children: [
+                      // [삭제 버튼] - 50%
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _showDeleteConfirmDialog,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.white, // 배경색 (흰색)
+                            foregroundColor: AppColors.error, // 글자색 (빨간색)
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: const BorderSide(color: AppColors.error), // 테두리 (선택 사항)
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            '삭제',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12), // 버튼 사이 간격
 
-                if (_isEditing) ...[
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: _isLoading ? null : _showDeleteConfirmDialog,
-                    child: const Text('이 일정 삭제', style: TextStyle(color: AppColors.error)),
+                      // [수정 완료 버튼] - 50%
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _saveSchedule,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.mainBtn,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            elevation: 0,
+                          ),
+                          child: _isLoading
+                              ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                              : const Text('수정 완료', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                // [일정 등록 버튼] - 100% (신규 등록 시)
+                  ElevatedButton(
+                    onPressed: _isLoading ? null : _saveSchedule,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.mainBtn,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : const Text('일정 등록', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                   ),
-                ],
+
                 const SizedBox(height: 40),
               ],
             ),

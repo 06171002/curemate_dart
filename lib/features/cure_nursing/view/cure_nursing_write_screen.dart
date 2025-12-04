@@ -1,220 +1,333 @@
-// lib/features/cure_nursing/view/cure_nursing_write_screen.dart
-
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:curemate/app/theme/app_colors.dart';
-import 'package:curemate/features/widgets/common/custom_text_field.dart';
+import 'package:curemate/features/cure_nursing/model/nursing_model.dart';
+import 'package:curemate/features/cure_nursing/viewmodel/cure_nursing_viewmodel.dart';
+// SDUI 관련 임포트
+import 'package:curemate/common/sdui/view/sdui_renderer.dart';
 
-class CureNursingWriteScreen extends StatefulWidget {
+class CureNursingWriteScreen extends StatelessWidget {
   const CureNursingWriteScreen({super.key});
 
   @override
-  State<CureNursingWriteScreen> createState() => _CureNursingWriteScreenState();
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider(
+      // 화면 진입 시 카테고리 목록(Step 1용) 조회
+      create: (_) => CureNursingViewModel()..fetchCategories(),
+      child: const _CureNursingWriteContent(),
+    );
+  }
 }
 
-class _CureNursingWriteScreenState extends State<CureNursingWriteScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  final List<String> _categories = ['바이탈', '식사', '배설', '활동/수면', '기타'];
-
-  String _mealAmount = '전량';
-  double _temperature = 36.5;
+class _CureNursingWriteContent extends StatefulWidget {
+  const _CureNursingWriteContent();
 
   @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: _categories.length, vsync: this);
+  State<_CureNursingWriteContent> createState() => _CureNursingWriteContentState();
+}
+
+class _CureNursingWriteContentState extends State<_CureNursingWriteContent> {
+  int _currentStep = 0; // 0: 분류 선택, 1: 상세 입력
+
+  NursingCategoryModel? _selectedMainCategory;
+  NursingCategoryModel? _selectedSubCategory;
+  DateTime _selectedTime = DateTime.now();
+
+  // --- 이벤트 핸들러 ---
+
+  void _onMainCategorySelected(NursingCategoryModel category) {
+    setState(() {
+      _selectedMainCategory = category;
+    });
+  }
+
+  // ✅ 중분류 선택 시 -> SDUI 폼 데이터 로드
+  Future<void> _onSubCategorySelected(BuildContext context, NursingCategoryModel subCategory) async {
+    final viewModel = context.read<CureNursingViewModel>();
+
+    setState(() {
+      _selectedSubCategory = subCategory;
+      _currentStep = 1; // Step 2로 이동
+    });
+
+    // 🚀 선택된 카테고리 코드(예: 'BP')로 서버에 폼 구성 요청
+    await viewModel.loadSduiForm(subCategory.categoryCd);
+  }
+
+  void _handleBack() {
+    if (_currentStep == 1) {
+      // Step 2 -> Step 1 복귀 시 초기화
+      setState(() {
+        _currentStep = 0;
+        _selectedSubCategory = null;
+      });
+      context.read<CureNursingViewModel>().clearSduiData();
+    } else {
+      Navigator.pop(context);
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_selectedTime),
+    );
+    if (picked != null) {
+      setState(() {
+        final now = DateTime.now();
+        _selectedTime = DateTime(now.year, now.month, now.day, picked.hour, picked.minute);
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.white,
-      appBar: AppBar(
-        title: const Text('일지 작성', style: TextStyle(color: AppColors.textMainDark, fontWeight: FontWeight.bold)),
-        backgroundColor: AppColors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.close, color: AppColors.textMainDark),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            child: const Text('저장', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.mainBtn)),
-          )
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: AppColors.mainBtn,
-          unselectedLabelColor: AppColors.textSecondaryLight,
-          indicatorColor: AppColors.mainBtn,
-          isScrollable: true,
-          tabs: _categories.map((c) => Tab(text: c)).toList(),
-        ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildVitalForm(),
-          _buildMealForm(),
-          _buildExcretionForm(),
-          _buildActivityForm(),
-          _buildEtcForm(),
-        ],
-      ),
-    );
-  }
+    final viewModel = context.watch<CureNursingViewModel>();
 
-  Widget _buildVitalForm() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          _buildTimePicker(),
-          const SizedBox(height: 24),
-          _buildSectionTitle("체온 (°C)"),
-          Row(
+    return PopScope(
+      canPop: _currentStep == 0,
+      onPopInvoked: (didPop) {
+        if (!didPop) _handleBack();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.lightBackground,
+        appBar: _buildAppBar(),
+        body: SafeArea(
+          child: Column(
             children: [
               Expanded(
-                child: Slider(
-                  value: _temperature,
-                  min: 35.0,
-                  max: 40.0,
-                  divisions: 50,
-                  activeColor: AppColors.mainBtn,
-                  onChanged: (val) => setState(() => _temperature = val),
-                ),
+                // ✅ Step에 따라 화면 전환
+                child: _currentStep == 0
+                    ? _buildStep1CategorySelection(viewModel)
+                    : _buildStep2SduiForm(viewModel),
               ),
-              Text(_temperature.toStringAsFixed(1), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              // 저장 버튼은 Step 2에서만 노출
+              if (_currentStep == 1) _buildSaveButton(viewModel),
             ],
           ),
-          const SizedBox(height: 24),
-          Row(
-            children: const [
-              Expanded(child: CustomTextField(label: "수축기 혈압", hint: "120", inputType: TextInputType.number)),
-              SizedBox(width: 16),
-              Expanded(child: CustomTextField(label: "이완기 혈압", hint: "80", inputType: TextInputType.number)),
-            ],
-          ),
-          const SizedBox(height: 24),
-          const CustomTextField(label: "맥박 (회/분)", hint: "75", inputType: TextInputType.number),
-          const SizedBox(height: 32),
-          _buildCommonFields(),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildMealForm() {
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      title: Text(
+        _currentStep == 0
+            ? '기록 분류 선택'
+            : '${_selectedMainCategory?.categoryNm} > ${_selectedSubCategory?.categoryNm}',
+        style: const TextStyle(color: AppColors.textMainDark, fontWeight: FontWeight.bold, fontSize: 18),
+      ),
+      backgroundColor: AppColors.white,
+      elevation: 0,
+      centerTitle: false,
+      leading: IconButton(
+        icon: Icon(_currentStep == 0 ? Icons.close : Icons.arrow_back_ios_new, color: AppColors.textMainDark),
+        onPressed: _handleBack,
+      ),
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // [Step 1] 분류 선택 화면 (기존 로직 유지)
+  // -----------------------------------------------------------------------
+  Widget _buildStep1CategorySelection(CureNursingViewModel viewModel) {
+    if (viewModel.isLoadingCategories) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    // 1. 선택된 대분류가 없으면 첫 번째 것으로 초기화
+    if (_selectedMainCategory == null && viewModel.categories.isNotEmpty) {
+      _selectedMainCategory = viewModel.categories.first;
+    }
+
+    if (viewModel.categories.isEmpty) {
+      return const Center(child: Text("카테고리 정보가 없습니다."));
+    }
+
+    final mainCategories = viewModel.categories;
+    final subCategories = _selectedMainCategory?.children ?? [];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 대분류 선택 영역
+        Container(
+          width: double.infinity,
+          color: AppColors.white,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text("대분류", style: TextStyle(fontSize: 14, color: AppColors.textSecondaryLight, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8.0,
+                runSpacing: 8.0,
+                children: mainCategories.map((category) {
+                  final isSelected = _selectedMainCategory?.categoryCd == category.categoryCd;
+                  return ChoiceChip(
+                    label: Text(category.categoryNm),
+                    selected: isSelected,
+                    onSelected: (_) => _onMainCategorySelected(category),
+                    selectedColor: AppColors.mainBtn,
+                    backgroundColor: AppColors.white,
+                    labelStyle: TextStyle(
+                      color: isSelected ? Colors.white : AppColors.textMainDark,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      side: BorderSide(color: isSelected ? Colors.transparent : AppColors.inputBorder),
+                    ),
+                    showCheckmark: false,
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1, color: AppColors.inputBorder),
+        // 중분류 선택 (그리드)
+        Expanded(
+          child: Container(
+            color: AppColors.lightBackground,
+            padding: const EdgeInsets.all(20),
+            child: GridView.builder(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 1.5,
+              ),
+              itemCount: subCategories.length,
+              itemBuilder: (context, index) {
+                return _buildSubCategoryCard(context, subCategories[index], viewModel);
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSubCategoryCard(BuildContext context, NursingCategoryModel sub, CureNursingViewModel viewModel) {
+    return InkWell(
+      onTap: () => _onSubCategorySelected(context, sub),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [BoxShadow(color: AppColors.shadow, blurRadius: 4, offset: const Offset(0, 2))],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(viewModel.getIconForName(sub.iconNm), size: 32, color: AppColors.mainBtn),
+            const SizedBox(height: 12),
+            Text(sub.categoryNm, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.textMainDark)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // [Step 2] 상세 입력 화면 (🔥 SDUI 적용)
+  // -----------------------------------------------------------------------
+  Widget _buildStep2SduiForm(CureNursingViewModel viewModel) {
+    if (viewModel.isLoadingForm) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (viewModel.sduiRootNode == null) {
+      return const Center(child: Text("입력 양식을 불러올 수 없습니다."));
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildTimePicker(),
+          // 시간 선택 (공통 요소)
+          _buildTimeInput(),
           const SizedBox(height: 24),
-          _buildSectionTitle("식사 유형"),
-          Wrap(
-            spacing: 8,
-            children: ['아침', '점심', '저녁', '간식'].map((meal) {
-              return ChoiceChip(
-                label: Text(meal),
-                selected: true,
-                selectedColor: AppColors.mainBtn.withValues(alpha: 0.2),
-                labelStyle: const TextStyle(color: AppColors.textMainDark),
-                onSelected: (bool selected) {},
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 24),
-          _buildSectionTitle("섭취량"),
+
+          // SDUI Renderer: 서버에서 받은 노드 트리를 그립니다.
           Container(
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: AppColors.lightBackground,
-              borderRadius: BorderRadius.circular(12),
+              color: AppColors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.inputBorder),
             ),
-            child: Row(
-              children: ['전량', '1/2', '소량', '금식'].map((amount) {
-                final isSelected = _mealAmount == amount;
-                return Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _mealAmount = amount),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: BoxDecoration(
-                        color: isSelected ? AppColors.mainBtn : Colors.transparent,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        amount,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: isSelected ? Colors.white : AppColors.textSecondaryLight,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
+            // SDUI 렌더러 호출
+            child: SduiRenderer(
+                node: viewModel.sduiRootNode!,
+                controller: viewModel.sduiController
             ),
           ),
-          const SizedBox(height: 32),
-          _buildCommonFields(),
+
+          const SizedBox(height: 24),
+          // 메모 등 공통 필드...
         ],
       ),
     );
   }
 
-  Widget _buildTimePicker() {
-    return Row(
-      children: [
-        const Icon(Icons.access_time, color: AppColors.mainBtn),
-        const SizedBox(width: 8),
-        const Text("시간", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const Spacer(),
-        TextButton(
-          onPressed: () {},
-          child: const Text("오전 08:30", style: TextStyle(fontSize: 16, color: AppColors.textMainDark)),
+  Widget _buildTimeInput() {
+    return GestureDetector(
+      onTap: _pickTime,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          border: Border.all(color: AppColors.inputBorder),
+          borderRadius: BorderRadius.circular(12),
         ),
-      ],
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                DateFormat('HH:mm').format(_selectedTime),
+                style: const TextStyle(fontSize: 14, color: AppColors.textMainDark),
+              ),
+            ),
+            const Icon(Icons.access_time, color: AppColors.textSecondaryLight),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textSecondaryLight)),
-    );
-  }
-
-  Widget _buildCommonFields() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const CustomTextField(
-          label: "메모",
-          hint: "특이사항을 입력해주세요.",
-          maxLines: 3,
-        ),
-        const SizedBox(height: 24),
-        _buildSectionTitle("사진 첨부"),
-        Container(
-          width: 80,
-          height: 80,
-          decoration: BoxDecoration(
-            color: AppColors.lightBackground,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.inputBorder),
+  Widget _buildSaveButton(CureNursingViewModel viewModel) {
+    return Container(
+      padding: const EdgeInsets.all(16.0),
+      decoration: const BoxDecoration(
+        color: AppColors.white,
+        border: Border(top: BorderSide(color: AppColors.inputBorder)),
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        height: 52,
+        child: ElevatedButton(
+          onPressed: () {
+            // 저장 로직: SduiController의 데이터를 가져와서 저장
+            viewModel.saveLog().then((_) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('저장되었습니다.')));
+              Navigator.pop(context);
+            });
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.mainBtn,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            elevation: 0,
           ),
-          child: const Icon(Icons.camera_alt, color: AppColors.textSecondaryLight),
+          child: const Text('저장하기', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.white)),
         ),
-      ],
+      ),
     );
   }
-
-  Widget _buildExcretionForm() => const Center(child: Text("배설 폼 준비중"));
-  Widget _buildActivityForm() => const Center(child: Text("활동 폼 준비중"));
-  Widget _buildEtcForm() => const Center(child: Text("기타 폼 준비중"));
 }

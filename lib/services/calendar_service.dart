@@ -10,33 +10,13 @@ class CalendarService {
 
   CalendarService() : _apiService = ApiService();
 
-  Future<void> createSchedule(Map<String, dynamic> inputData) async {
-    // inputData 예시:
-    // {
-    //   'patientId': 123,
-    //   'scheduleType': '진료',
-    //   'title': '감기 진료',
-    //   'content': '내과 방문',
-    //   'startDate': '2023-10-25',
-    //   'startTime': '09:00',
-    //   'endDate': '2023-10-25',
-    //   'endTime': '10:00',
-    //   'isAllDay': false,
-    //   'isAlarmOn': true,
-    //   'alarmType': 'push',
-    //   'alarmTime': '10분 전'
-    // }
-
+  // [통합] 일정 등록 및 수정 (mergeCalendarAll 호출)
+  Future<void> saveSchedule(Map<String, dynamic> inputData) async {
     final String typeCode = _mapTypeToCode(inputData['scheduleType']);
-
-    // 2. [추가] 스케줄 반복 타입(daily, weekly 등) 매핑
     final String scheduleRepeatCode = _mapRepeatToScheduleType(inputData['repeatOption']);
-
-    // 3. [추가] 반복 여부(Y/N) 설정 (반복 없음이면 N, 나머지는 Y)
-    //    만약 '매일'도 반복으로 본다면 '반복 없음'만 N으로 처리
     final String repeatYn = inputData['repeatOption'] == '반복 없음' ? 'N' : 'Y';
 
-    // 날짜+시간 합치기 (YYYY-MM-DD HH:mm:ss 형태 권장)
+    // 시간 포맷팅
     String startDttm = "${inputData['startDate']} ${inputData['startTime']}:00";
     String endDttm = "${inputData['endDate']} ${inputData['endTime']}:00";
 
@@ -45,47 +25,48 @@ class CalendarService {
       endDttm = "${inputData['endDate']} 23:59:59";
     }
 
-    // 서버로 보낼 데이터 구조 (CureCalendarVo 구조에 맞춤)
+    // [핵심] 백엔드 VO 구조에 맞춘 Request Body 생성
     final Map<String, dynamic> requestBody = {
       "param": {
-        // 1. 기본 정보 (t_cure_calendar)
-        "patientSeq": inputData['patientId'],    // 환자 ID
-        "cureCalendarTypeCmcd": typeCode,        // 일정 타입 (treatment, medicine...)
-        "cureCalendarNm": inputData['title'],    // 제목
-        "cureCalendarDesc": inputData['content'],// 내용
-        "releaseYn": "Y",                        // 공개 여부 (기본값)
-        "cureSeq": inputData['cureSeq'],
+        // 수정일 경우 PK(cureCalendarSeq)가 있어야 함 (없으면 0)
+        "cureCalendarSeq": inputData['cureCalendarSeq'] ?? 0,
 
-        // 2. 상세 스케줄 정보 (t_cure_calendar_schedule)
+        "patientSeq": inputData['patientId'],
+        "cureCalendarTypeCmcd": typeCode,
+        "cureCalendarNm": inputData['title'],
+        "cureCalendarDesc": inputData['content'],
+        "releaseYn": inputData['isPublic'] ? "Y" : "N",
+        "cureSeq": inputData['cureSeq'],
+        "cureScheduleDayYn": inputData['isAllDay'] ? "Y" : "N",
+
+        // 상세 스케줄 정보
         "schedule": {
           "cureScheduleStartDttm": startDttm,
           "cureScheduleEndDttm": endDttm,
           "cureScheduleDayYn": inputData['isAllDay'] ? "Y" : "N",
-          "cureScheduleRepeatYn": repeatYn, // 반복 로직 구현 시 수정 필요
+          "cureScheduleRepeatYn": repeatYn,
           "cureScheduleTypeCmcd": scheduleRepeatCode
         },
 
-        // 3. 알람 정보 (t_cure_calendar_alram) - 리스트 형태
+        // 알람 정보
         "alrams": inputData['isAlarmOn'] ? [
           {
-            // 알람 시간 계산 로직
             "cureAlramDttm": _calculateAlarmTime(startDttm, inputData['alarmTime']),
-            "cureAlramTypeCmcd": _mapAlarmType(inputData['alarmType']) // push, sms 등 매핑 필요 시 처리
+            "cureAlramTypeCmcd": _mapAlarmType(inputData['alarmType'])
           }
         ] : []
       }
     };
 
     try {
+      // 등록/수정 모두 이 엔드포인트 하나로 처리됨 (ID 유무로 백엔드가 판단)
       final response = await _apiService.post('/rest/calendar/mergeCalendarAll', data: requestBody);
 
-      // 성공 처리 (필요시)
       if (response.statusCode != 200) {
-        throw Exception("일정 등록 실패: ${response.statusMessage}");
+        throw Exception("일정 저장 실패: ${response.statusMessage}");
       }
     } catch (e) {
-      // 에러 로그 출력 또는 재던지기
-      print("Create Schedule Error: $e");
+      print("Save Schedule Error: $e");
       rethrow;
     }
   }

@@ -104,177 +104,319 @@ class _CureNursingTabState extends State<CureNursingTab> {
 
   // --- 통합 설정 모달 (필터 + 설정) ---
   void _showSettingsModal() {
+    // 1. [초기화] 모달 열릴 때 현재 상태를 임시 변수에 복사 (적용 전 상태)
+    bool tempShowOnlyAlerts = _showOnlyAlerts;
+    bool tempShowEmptySlots = _showEmptySlots;
+    String tempSearchTagQuery = _searchTagQuery;
+    Set<String> tempSelectedCategories = Set.from(_selectedCategories);
+    Set<String> tempSelectedMetricIds = Set.from(_selectedMetricIds);
+
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true, // 전체 높이 사용
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.85,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          builder: (_, controller) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-              ),
-              // ✅ [수정] 키보드(viewInsets) + 세이프 에어리어(padding) 모두 고려하여 하단 패딩 적용
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom + MediaQuery.of(context).padding.bottom,
-              ),
-              child: StatefulBuilder(
-                builder: (BuildContext context, StateSetter setModalState) {
-                  return Column(
-                    children: [
-                      // 헤더
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                        child: Row(
-                          children: [
-                            const Text("기록 설정", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                            const Spacer(),
-                            TextButton(
-                              onPressed: () {
-                                setModalState(() {
-                                  _showOnlyAlerts = false;
-                                  _showEmptySlots = false;
-                                  _searchTagQuery = "";
-                                  _selectedCategories.clear();
-                                });
-                                // 메인 화면 갱신
-                                setState(() {});
-                              },
-                              child: const Text("필터 초기화", style: TextStyle(color: AppColors.textSecondaryLight)),
+        // 2. [상태 관리] 모달 내부 UI 갱신을 위한 StatefulBuilder
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.85,
+              minChildSize: 0.5,
+              maxChildSize: 0.95,
+              builder: (_, scrollController) {
+                return Container(
+                  decoration: const BoxDecoration(
+                    color: AppColors.white,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: DefaultTabController(
+                    length: 2,
+                    child: Column(
+                      children: [
+                        // --- 헤더 (핸들바 + 제목 + 닫기) ---
+                        Center(
+                          child: Container(
+                            margin: const EdgeInsets.only(top: 12, bottom: 8),
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: AppColors.grey.withValues(alpha: 0.3),
+                              borderRadius: BorderRadius.circular(2),
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.close),
-                              onPressed: () => Navigator.pop(context),
-                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Row(
+                            children: [
+                              const Text(
+                                "기록 설정",
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textMainDark,
+                                ),
+                              ),
+                              const Spacer(),
+                              // 닫기 버튼 (저장 안 함)
+                              IconButton(
+                                icon: const Icon(Icons.close, color: AppColors.textMainDark),
+                                onPressed: () => Navigator.pop(context),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // --- 탭 바 (디자인 수정됨) ---
+                        TabBar(
+                          labelColor: AppColors.mainBtn,
+                          unselectedLabelColor: AppColors.textSecondaryLight,
+                          labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+
+                          // ✅ [디자인 수정] 인디케이터 색상 및 두께 조절
+                          indicatorColor: AppColors.mainBtn,
+                          indicatorWeight: 2.0, // 선 두께를 얇게 (기존 3 -> 2)
+                          indicatorSize: TabBarIndicatorSize.tab, // 탭 전체 너비 사용
+
+                          // ✅ [수정 1] 구분선 디자인 적용
+                          dividerHeight: 1,
+                          dividerColor: const Color(0xFFF5F5F5), // 또는 AppColors.lightGrey
+
+                          // ✅ [수정 2] MaterialStateProperty -> WidgetStateProperty 로 변경
+                          overlayColor: WidgetStateProperty.all(AppColors.mainBtn.withValues(alpha: 0.1)),
+                          tabs: const [
+                            Tab(text: "필터"),
+                            Tab(text: "설정"),
                           ],
                         ),
-                      ),
-                      const Divider(height: 1),
+                        // const Divider(height: 1, color: Color(0xFFF5F5F5)),
 
-                      // 컨텐츠
-                      Expanded(
-                        child: ListView(
-                          controller: controller,
-                          padding: const EdgeInsets.all(20),
-                          children: [
-                            // 1. 카테고리 필터
-                            _buildSectionTitle("카테고리 필터"),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: _allCategories.map((category) {
-                                final isSelected = _selectedCategories.contains(category);
-                                return _buildSelectableButton(
-                                  label: category,
-                                  isSelected: isSelected,
-                                  onTap: () {
-                                    setModalState(() {
-                                      if (isSelected) {
-                                        _selectedCategories.remove(category);
-                                      } else {
-                                        _selectedCategories.add(category);
+                        // --- 탭 내용 (임시 변수 사용 및 변경) ---
+                        Expanded(
+                          child: TabBarView(
+                            children: [
+                              // 탭 1: 필터
+                              _buildFilterTab(
+                                scrollController: scrollController,
+                                tempSelectedCategories: tempSelectedCategories,
+                                tempSearchTagQuery: tempSearchTagQuery,
+                                onCategoryChanged: (category) {
+                                  setModalState(() {
+                                    if (tempSelectedCategories.contains(category)) {
+                                      tempSelectedCategories.remove(category);
+                                    } else {
+                                      tempSelectedCategories.add(category);
+                                    }
+                                  });
+                                },
+                                onQueryChanged: (val) {
+                                  setModalState(() => tempSearchTagQuery = val);
+                                },
+                                onReset: () {
+                                  setModalState(() {
+                                    tempSelectedCategories.clear();
+                                    tempSearchTagQuery = "";
+                                  });
+                                },
+                              ),
+
+                              // 탭 2: 설정
+                              _buildSettingsTab(
+                                scrollController: scrollController,
+                                tempShowOnlyAlerts: tempShowOnlyAlerts,
+                                tempShowEmptySlots: tempShowEmptySlots,
+                                tempSelectedMetricIds: tempSelectedMetricIds,
+                                onAlertToggle: (val) {
+                                  setModalState(() => tempShowOnlyAlerts = val);
+                                },
+                                onEmptySlotToggle: (val) {
+                                  setModalState(() => tempShowEmptySlots = val);
+                                },
+                                onMetricToggle: (id) {
+                                  setModalState(() {
+                                    if (tempSelectedMetricIds.contains(id)) {
+                                      if (tempSelectedMetricIds.length > 1) {
+                                        tempSelectedMetricIds.remove(id);
                                       }
-                                    });
-                                    setState(() {});
-                                  },
-                                );
-                              }).toList(),
-                            ),
-                            const SizedBox(height: 32),
+                                    } else {
+                                      tempSelectedMetricIds.add(id);
+                                    }
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
 
-                            // 2. 태그 검색
-                            _buildSectionTitle("태그 검색"),
-                            const SizedBox(height: 12),
-                            TextField(
-                              onChanged: (val) {
-                                setModalState(() => _searchTagQuery = val);
-                                setState(() {});
+                        // --- 하단 버튼 (적용하기) ---
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            20,
+                            10,
+                            20,
+                            20 + MediaQuery.of(context).padding.bottom,
+                          ),
+                          child: SizedBox(
+                            width: double.infinity,
+                            height: 52,
+                            child: ElevatedButton(
+                              // ✅ [로직 수정] 여기서만 실제 상태(setState) 업데이트
+                              onPressed: () {
+                                setState(() {
+                                  _showOnlyAlerts = tempShowOnlyAlerts;
+                                  _showEmptySlots = tempShowEmptySlots;
+                                  _searchTagQuery = tempSearchTagQuery;
+                                  _selectedCategories.clear();
+                                  _selectedCategories.addAll(tempSelectedCategories);
+                                  _selectedMetricIds.clear();
+                                  _selectedMetricIds.addAll(tempSelectedMetricIds);
+                                });
+                                Navigator.pop(context);
                               },
-                              decoration: InputDecoration(
-                                hintText: "태그 입력 (예: 기침, 두통)",
-                                prefixIcon: const Icon(Icons.search, color: Colors.grey),
-                                filled: true,
-                                fillColor: AppColors.lightBackground,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                                border: OutlineInputBorder(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.mainBtn,
+                                shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide.none,
+                                ),
+                                elevation: 0,
+                              ),
+                              child: const Text(
+                                '적용하기',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.white,
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 32),
-
-                            // 3. 보기 옵션
-                            _buildSectionTitle("보기 옵션"),
-                            SwitchListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text("⚠️ 특이사항(Alert)만 보기", style: TextStyle(fontWeight: FontWeight.w500)),
-                              value: _showOnlyAlerts,
-                              activeColor: AppColors.mainBtn,
-                              onChanged: (val) {
-                                setModalState(() => _showOnlyAlerts = val);
-                                setState(() {});
-                              },
-                            ),
-                            SwitchListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text("⏱️ 빈 시간대 포함하여 보기", style: TextStyle(fontWeight: FontWeight.w500)),
-                              subtitle: const Text("기록이 없는 시간도 30분 단위로 표시합니다.", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                              value: _showEmptySlots,
-                              activeColor: AppColors.mainBtn,
-                              onChanged: (val) {
-                                setModalState(() => _showEmptySlots = val);
-                                setState(() {});
-                              },
-                            ),
-                            const SizedBox(height: 32),
-
-                            // 4. 요약 정보 설정 (맨 아래로 이동)
-                            _buildSectionTitle("상단 요약 정보 선택"),
-                            const Text("대시보드에 표시할 항목을 선택해주세요.", style: TextStyle(fontSize: 13, color: Colors.grey)),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: _allMetrics.map((item) {
-                                final isSelected = _selectedMetricIds.contains(item.id);
-                                return _buildSelectableButton(
-                                  label: item.label,
-                                  isSelected: isSelected,
-                                  onTap: () {
-                                    setModalState(() {
-                                      if (isSelected) {
-                                        if (_selectedMetricIds.length > 1) {
-                                          _selectedMetricIds.remove(item.id);
-                                        }
-                                      } else {
-                                        _selectedMetricIds.add(item.id);
-                                      }
-                                    });
-                                    setState(() {});
-                                  },
-                                );
-                              }).toList(),
-                            ),
-                            // 하단 여백 확보
-                            const SizedBox(height: 40),
-                          ],
+                          ),
                         ),
-                      ),
-                    ],
-                  );
-                },
-              ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             );
           },
         );
       },
+    );
+  }
+
+  // --- 탭 1: 필터 화면 ---
+  Widget _buildFilterTab({
+    required ScrollController scrollController,
+    required Set<String> tempSelectedCategories,
+    required String tempSearchTagQuery,
+    required Function(String) onCategoryChanged,
+    required Function(String) onQueryChanged,
+    required VoidCallback onReset,
+  }) {
+    // 텍스트 필드 컨트롤러 초기값 설정 (커서 튐 방지)
+    final TextEditingController textController = TextEditingController(text: tempSearchTagQuery);
+    textController.selection = TextSelection.fromPosition(TextPosition(offset: textController.text.length));
+
+    return ListView(
+      controller: scrollController,
+      padding: const EdgeInsets.all(20),
+      children: [
+        _buildSectionTitle("카테고리 선택"),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: _allCategories.map((category) {
+            final isSelected = tempSelectedCategories.contains(category);
+            return _buildSelectableButton(
+              label: category,
+              isSelected: isSelected,
+              onTap: () => onCategoryChanged(category),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 32),
+
+        _buildSectionTitle("태그 검색"),
+        const SizedBox(height: 12),
+        TextField(
+          controller: textController,
+          onChanged: onQueryChanged,
+          decoration: InputDecoration(
+            hintText: "태그 입력 (예: 기침, 두통)",
+            hintStyle: const TextStyle(color: AppColors.textSecondaryLight),
+            prefixIcon: const Icon(Icons.search, color: AppColors.textSecondaryLight),
+            filled: true,
+            fillColor: AppColors.lightBackground,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 32),
+        Center(
+          child: TextButton.icon(
+            onPressed: onReset,
+            icon: const Icon(Icons.refresh, size: 18, color: AppColors.textSecondaryLight),
+            label: const Text("필터 초기화", style: TextStyle(color: AppColors.textSecondaryLight)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- 탭 2: 설정 화면 ---
+  Widget _buildSettingsTab({
+    required ScrollController scrollController,
+    required bool tempShowOnlyAlerts,
+    required bool tempShowEmptySlots,
+    required Set<String> tempSelectedMetricIds,
+    required Function(bool) onAlertToggle,
+    required Function(bool) onEmptySlotToggle,
+    required Function(String) onMetricToggle,
+  }) {
+    return ListView(
+      controller: scrollController,
+      padding: const EdgeInsets.all(20),
+      children: [
+        _buildSectionTitle("보기 옵션"),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text("⚠️ 특이사항(Alert)만 보기", style: TextStyle(fontWeight: FontWeight.w500)),
+          value: tempShowOnlyAlerts,
+          activeColor: AppColors.mainBtn,
+          onChanged: onAlertToggle,
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text("⏱️ 빈 시간대 포함하여 보기", style: TextStyle(fontWeight: FontWeight.w500)),
+          subtitle: const Text("기록이 없는 시간도 30분 단위로 표시합니다.", style: TextStyle(fontSize: 12, color: AppColors.textSecondaryLight)),
+          value: tempShowEmptySlots,
+          activeColor: AppColors.mainBtn,
+          onChanged: onEmptySlotToggle,
+        ),
+
+        const SizedBox(height: 32),
+
+        _buildSectionTitle("상단 요약 정보 선택"),
+        const Text("대시보드에 표시할 항목을 선택해주세요.", style: TextStyle(fontSize: 13, color: AppColors.textSecondaryLight)),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: _allMetrics.map((item) {
+            final isSelected = tempSelectedMetricIds.contains(item.id);
+            return _buildSelectableButton(
+              label: item.label,
+              isSelected: isSelected,
+              onTap: () => onMetricToggle(item.id),
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 

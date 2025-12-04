@@ -48,4 +48,7 @@ class RoutePaths {
   //큐어룸 설정페이지
    static const String cureRoomSettings = '/cure-room/settings'; 
 
+  //멤버관리 페이지
+  static const memberManage = '/cure-room/member-manage';
 }
+

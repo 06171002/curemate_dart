@@ -1,13 +1,19 @@
 // lib/features/cure_room/view/cure_room_settings_screen.dart
 
+import 'dart:io';
+
 import 'package:curemate/app/theme/app_colors.dart';
 import 'package:curemate/features/cure_room/model/cure_room_models.dart';
 import 'package:curemate/services/cure_room_service.dart';
-import 'package:flutter/material.dart';
-import 'dart:io';
-import 'package:image_picker/image_picker.dart';
 import 'package:curemate/services/media_service.dart';
 import 'package:curemate/features/cure_room/view/follower_list_screen.dart';
+import 'package:curemate/routes/route_paths.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
+import 'package:curemate/features/auth/viewmodel/auth_viewmodel.dart';
+import 'package:curemate/features/widgets/common/bottom_nav_provider.dart';
 
 class CureRoomSettingsScreen extends StatefulWidget {
   /// 🔹 /rest/cure/cureRoom 응답을 모델로 파싱한 값
@@ -25,20 +31,15 @@ class CureRoomSettingsScreen extends StatefulWidget {
 
 class _CureRoomSettingsScreenState extends State<CureRoomSettingsScreen> {
   final _cureRoomService = CureRoomService();
-
   final MediaService _mediaService = MediaService();
   final ImagePicker _picker = ImagePicker();
-
 
   String _roomName = '큐어룸';
   String _roomDescription = '소개글을 설정해주세요.';
   bool _isPublic = false;
 
-  String? _roomImageUrl;
-
-  // 🔹 새로 추가: 사용자가 방금 고른 로컬 이미지(미리보기용)
-  File? _selectedImage;
-
+  String? _roomImageUrl; // 큐어룸 대표 이미지
+  File? _selectedImage; // 사용자가 새로 고른 로컬 이미지(미리보기용)
 
   List<_MemberItem> _members = [];
   bool _isSaving = false;
@@ -47,231 +48,354 @@ class _CureRoomSettingsScreenState extends State<CureRoomSettingsScreen> {
   void initState() {
     super.initState();
 
+    // 🔹 큐어룸 기본 정보 세팅
     final c = widget.cureRoom.cure;
 
-    // 🔹 실제 값이 없으면 빈 문자열로 두고, UI에서 placeholder 처리
-    _roomName = (c.cureNm ?? '').trim();
-    _roomDescription = (c.cureDesc ?? '').trim();
+    final cureNm = (c.cureNm).trim();
+    final cureDesc = (c.cureDesc ?? '').trim();
+
+    _roomName = cureNm.isEmpty ? '큐어룸' : cureNm;
+    _roomDescription =
+        cureDesc.isEmpty ? '소개글을 설정해주세요.' : cureDesc;
     _isPublic = c.releaseYn == 'Y';
 
-    // 프로필 이미지 (CurerModel에서 뽑은 URL 그대로 사용)
     _roomImageUrl = c.profileImgUrl;
 
-    // 멤버 리스트 (임시로 custSeq / 타입 코드 표시)
-    _members = widget.cureRoom.members.map((m) {
+    // 🔹 현재 로그인한 사용자 custSeq
+    final int? myCustSeq = context.read<AuthViewModel>().custSeq;
+
+    // 🔹 백엔드에서 온 멤버들(CureMemberModel → _MemberItem)
+    final apiMembers = widget.cureRoom.members
+        .where((m) => m.exileYn != 'Y') // ⬅⬅ 여기!
+        .map((m) {
+      final bool isMe = myCustSeq != null && m.custSeq == myCustSeq;
+      final bool isOwner = m.cureMemberGradeCmcd == 'owner';
+      final bool isManager = m.cureMemberGradeCmcd == 'manager';
+
       return _MemberItem(
-        name: m.custSeq.toString(),
-        roleLabel: m.cureMemberTypeCmcd,
-        roleColor: Colors.blue, // TODO: 코드별로 색상 분리 가능
-        isMe: false,
+        name: m.displayName,
+        roleLabel: m.cureMemberTypeCmnm.isNotEmpty
+            ? m.cureMemberTypeCmnm
+            : m.cureMemberTypeCmcd,
+        roleColor: _roleColorFromType(m.cureMemberTypeCmcd),
+        isMe: isMe,
+        isOwner: isOwner,
+        isManager: isManager,
+        imageUrl: m.profileImgUrl,
       );
     }).toList();
 
-    // 🟣 멤버 더미 데이터 추가
-  _members = [
-    _MemberItem(
-      name: '서지원',  // 본인
-      roleLabel: '보호자',
-      roleColor: Colors.blue,
-      isMe: true,
-    ),
-    _MemberItem(
-      name: '홍길동',
-      roleLabel: '간병인',
-      roleColor: Colors.green,
-    ),
-    _MemberItem(
-      name: '김철수',
-      roleLabel: '가족',
-      roleColor: Colors.purple,
-    ),
-    _MemberItem(
-      name: 'Jane',
-      roleLabel: '일반',
-      roleColor: Colors.orange,
-    ),
-  ];
+    // 🔥 정렬 로직: 나 → 방장 → 부방장 → 그 외
+    apiMembers.sort((a, b) {
+      // 1. 나 우선
+      if (a.isMe && !b.isMe) return -1;
+      if (!a.isMe && b.isMe) return 1;
+
+      // 2. 방장 우선
+      if (a.isOwner && !b.isOwner) return -1;
+      if (!a.isOwner && b.isOwner) return 1;
+
+      // 3. 부방장 우선
+      if (a.isManager && !b.isManager) return -1;
+      if (!a.isManager && b.isManager) return 1;
+
+      // 4. 그 외는 그대로
+      return 0;
+    });
+
+    if (apiMembers.isNotEmpty) {
+      _members = apiMembers;
+    } else {
+      // 🔸 API에 멤버가 한 명도 없을 때만 더미 사용 (테스트용)
+      _members = [
+        _MemberItem(
+          name: '서지원',
+          roleLabel: '보호자',
+          roleColor: Colors.blue,
+          isMe: true,
+          isOwner: true,
+        ),
+        _MemberItem(
+          name: '홍길동',
+          roleLabel: '간병인',
+          roleColor: Colors.green,
+          isMe: false,
+          isOwner: false,
+          isManager: true, // 예시로 부방장 하나 넣고 싶으면 이렇게
+        ),
+        _MemberItem(
+          name: '김철수',
+          roleLabel: '가족',
+          roleColor: Colors.purple,
+          isMe: false,
+          isOwner: false,
+        ),
+        _MemberItem(
+          name: 'Jane',
+          roleLabel: '일반',
+          roleColor: Colors.orange,
+          isMe: false,
+          isOwner: false,
+        ),
+      ];
+    }
   }
 
-// 문자열에서 #태그들만 뽑기
-List<String> _extractTags(String text) {
-  final reg = RegExp(r'#[^\s#]+'); // #으로 시작해서 공백/다른 # 나오기 전까지
-  return reg.allMatches(text).map((m) => m.group(0)!).toList();
-}
+  /// 🔄 멤버 목록만 새로고침
+  Future<void> _reloadCureRoomMembers() async {
+    try {
+      final detail = await _cureRoomService.getCureRoom(
+        widget.cureRoom.cure.cureSeq,
+      );
 
-// 문자열에서 #태그들을 제거한 "순수 소개글"만 남기기
-String _stripTags(String text) {
-  final reg = RegExp(r'#[^\s#]+');
-  final withoutTags = text.replaceAll(reg, '').trim();
-  // 중간에 공백 여러 개 생길 수 있으니 정리
-  return withoutTags.replaceAll(RegExp(r'\s+'), ' ').trim();
-}
+      // 다시 로그인 유저 가져오기
+      final int? myCustSeq = context.read<AuthViewModel>().custSeq;
+
+      // 🔹 API에서 내려온 멤버들을 _MemberItem으로 다시 매핑
+      final refreshed = detail.members
+          .where((m) => m.exileYn != 'Y') // ⬅⬅ 여기!
+          .map((m) {
+        final bool isMe = myCustSeq != null && m.custSeq == myCustSeq;
+        final bool isOwner = m.cureMemberGradeCmcd == 'owner';
+        final bool isManager = m.cureMemberGradeCmcd == 'manager';
+
+        return _MemberItem(
+          name: m.displayName,
+          roleLabel: m.cureMemberTypeCmnm.isNotEmpty
+              ? m.cureMemberTypeCmnm
+              : m.cureMemberTypeCmcd,
+          roleColor: _roleColorFromType(m.cureMemberTypeCmcd),
+          isMe: isMe,
+          isOwner: isOwner,
+          isManager: isManager,
+          imageUrl: m.profileImgUrl,
+        );
+      }).toList();
+
+      // 🔥 정렬(나 → 방장 → 부방장 → 그 외) 다시 적용
+      refreshed.sort((a, b) {
+        if (a.isMe && !b.isMe) return -1;
+        if (!a.isMe && b.isMe) return 1;
+
+        if (a.isOwner && !b.isOwner) return -1;
+        if (!a.isOwner && b.isOwner) return 1;
+
+        if (a.isManager && !b.isManager) return -1;
+        if (!a.isManager && b.isManager) return 1;
+
+        return 0;
+      });
+
+      setState(() {
+        _members = refreshed;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('멤버 목록 새로고침 중 오류가 발생했습니다: $e'),
+        ),
+      );
+    }
+  }
+
+  // 타입 코드별 색상
+  Color _roleColorFromType(String typeCode) {
+    switch (typeCode) {
+      case 'guardian':
+        return Colors.blue;
+      case 'caregiver':
+        return Colors.green;
+      case 'family':
+        return Colors.purple;
+      case 'user':
+      default:
+        return Colors.orange;
+    }
+  }
+
+  // 문자열에서 #태그들만 뽑기
+  List<String> _extractTags(String text) {
+    final reg = RegExp(r'#[^\s#]+');
+    return reg.allMatches(text).map((m) => m.group(0)!).toList();
+  }
+
+  // 문자열에서 #태그들을 제거한 "순수 소개글"만 남기기
+  String _stripTags(String text) {
+    final reg = RegExp(r'#[^\s#]+');
+    final withoutTags = text.replaceAll(reg, '').trim();
+    return withoutTags.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
 
   // ===================================================================
   // 🔹 큐어룸 저장 (mergeCureRoom)
   // ===================================================================
   Future<void> _saveCureRoom({
-  String? successMessage,
-  int? newMediaGroupSeq,   // 🔹 추가
-}) async {
-  setState(() {
-    _isSaving = true;
-  });
+    String? successMessage,
+    int? newMediaGroupSeq,
+  }) async {
+    setState(() {
+      _isSaving = true;
+    });
 
-  try {
-    final c = widget.cureRoom.cure;
+    try {
+      final c = widget.cureRoom.cure;
 
-    final payload = <String, dynamic>{
-      'cureSeq': c.cureSeq, // 수정 대상 큐어룸 PK
-      'cureNm': _roomName,
-      'cureDesc': _roomDescription,
-      'releaseYn': _isPublic ? 'Y' : 'N',
-      'useYn': 'Y',
-    };
+      final payload = <String, dynamic>{
+        'cureSeq': c.cureSeq,
+        'cureNm': _roomName,
+        'cureDesc': _roomDescription,
+        'releaseYn': _isPublic ? 'Y' : 'N',
+        'useYn': 'Y',
+      };
 
-    // 🔹 새 mediaGroupSeq가 넘어오면 그걸 우선 사용
-    if (newMediaGroupSeq != null) {
-      payload['cureMediaGroupSeq'] = newMediaGroupSeq;
-    } else if (c.cureMediaGroupSeq != null) {
-      payload['cureMediaGroupSeq'] = c.cureMediaGroupSeq;
-    }
+      if (newMediaGroupSeq != null) {
+        payload['cureMediaGroupSeq'] = newMediaGroupSeq;
+      } else if (c.cureMediaGroupSeq != null) {
+        payload['cureMediaGroupSeq'] = c.cureMediaGroupSeq;
+      }
 
-    await _cureRoomService.saveCureRoom(payload);
+      await _cureRoomService.saveCureRoom(payload);
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          successMessage ?? '큐어룸 설정이 저장되었습니다.',
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            successMessage ?? '큐어룸 설정이 저장되었습니다.',
+          ),
         ),
-      ),
-    );
-  } catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('저장 중 오류가 발생했습니다: $e')),
-    );
-  } finally {
-    if (mounted) {
-      setState(() {
-        _isSaving = false;
-      });
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('저장 중 오류가 발생했습니다: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
     }
   }
-}
 
   // ===================================================================
   // 🔹 build
   // ===================================================================
   @override
- Widget build(BuildContext context) {
-  return WillPopScope(
-    onWillPop: () async {
-      // 안드로이드 시스템 뒤로가기 눌렀을 때
-      Navigator.of(context).pop(_isPublic);
-      return false; // 우리가 직접 pop 했으니 기본 pop 막기
-    },
-    child: Scaffold(
-      backgroundColor: AppColors.lightBackground,
-      appBar: AppBar(
+  Widget build(BuildContext context) {
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.of(context).pop(_isPublic);
+        return false;
+      },
+      child: Scaffold(
         backgroundColor: AppColors.lightBackground,
-        elevation: 0,
-        centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.black),
-        title: const Text(
-          '큐어룸 설정',
-          style: TextStyle(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
+        appBar: AppBar(
+          backgroundColor: AppColors.lightBackground,
+          elevation: 0,
+          centerTitle: true,
+          iconTheme: const IconThemeData(color: Colors.black),
+          title: const Text(
+            '큐어룸 설정',
+            style: TextStyle(
+              color: Colors.black,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black),
+            onPressed: () {
+              Navigator.of(context).pop(_isPublic);
+            },
           ),
         ),
-        // 🔹 앱바 왼쪽 뒤로가기 버튼도 현재 공개여부를 리턴하게 변경
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black),
-          onPressed: () {
-            Navigator.of(context).pop(_isPublic);
-          },
-        ),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.only(bottom: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+        body: SafeArea(
+          child: Stack(
             children: [
-              const SizedBox(height: 8),
-              _buildRoomIntroCard(),
-              _buildFollowerCard(),
-              _buildPublicToggleCard(),
-              _buildMemberCard(),
-              const SizedBox(height: 12),
-              _buildLeaveRoomButton(),
+              SingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 8),
+                    _buildRoomIntroCard(),
+                    _buildFollowerCard(),
+                    _buildPublicToggleCard(),
+                    _buildMemberCard(),
+                    const SizedBox(height: 12),
+                    _buildLeaveRoomButton(),
+                  ],
+                ),
+              ),
+              if (_isSaving)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.black.withOpacity(0.05),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+                ),
             ],
           ),
         ),
       ),
-    ),
-  );
-}
-
-  // ===================================================================
-  // 🔹 큐어룸 소개 카드 (사진 + 이름 + 소개글)
-  // ===================================================================
-  Future<void> _changeRoomImage() async {
-  try {
-    // 1. 이미지 선택
-    final XFile? pickedFile = await _picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1080,
-      maxHeight: 1080,
-      imageQuality: 85,
-    );
-
-    if (pickedFile == null) return;
-
-    final file = File(pickedFile.path);
-
-    // 🔹 화면 미리보기용으로 먼저 세팅
-    setState(() {
-      _selectedImage = file;
-    });
-
-    // 2. 업로드 (cureSeq 기준으로 서브 디렉토리 분리)
-    final c = widget.cureRoom.cure;
-
-    final uploadResult = await _mediaService.uploadFiles(
-      files: [file],
-      mediaType: "cureRoom",
-      subDirectory: c.cureSeq.toString(), // 방별 디렉토리
-    );
-
-    final mediaGroupSeq = uploadResult['mediaGroupSeq'];
-    if (mediaGroupSeq == null) {
-      throw Exception('업로드 결과에 mediaGroupSeq가 없습니다.');
-    }
-
-    // 3. 업로드된 mediaGroupSeq로 큐어룸 저장
-    await _saveCureRoom(
-      newMediaGroupSeq: int.parse(mediaGroupSeq.toString()),
-      successMessage: '큐어룸 사진이 변경되었습니다.',
-    );
-  } catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('사진 변경 중 오류가 발생했습니다: $e'),
-      ),
     );
   }
-}
+
+  // ===================================================================
+  // 🔹 큐어룸 소개 카드
+  // ===================================================================
+  Future<void> _changeRoomImage() async {
+    try {
+      final XFile? pickedFile = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1080,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (pickedFile == null) return;
+
+      final file = File(pickedFile.path);
+
+      setState(() {
+        _selectedImage = file;
+      });
+
+      final c = widget.cureRoom.cure;
+
+      final uploadResult = await _mediaService.uploadFiles(
+        files: [file],
+        mediaType: "cureRoom",
+        subDirectory: c.cureSeq.toString(),
+      );
+
+      final mediaGroupSeq = uploadResult['mediaGroupSeq'];
+      if (mediaGroupSeq == null) {
+        throw Exception('업로드 결과에 mediaGroupSeq가 없습니다.');
+      }
+
+      await _saveCureRoom(
+        newMediaGroupSeq: int.parse(mediaGroupSeq.toString()),
+        successMessage: '큐어룸 사진이 변경되었습니다.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('사진 변경 중 오류가 발생했습니다: $e'),
+        ),
+      );
+    }
+  }
 
   Widget _buildRoomIntroCard() {
-    final hasNetworkImage = _roomImageUrl != null && _roomImageUrl!.isNotEmpty;
+    final hasNetworkImage =
+        _roomImageUrl != null && _roomImageUrl!.isNotEmpty;
     final hasLocalImage = _selectedImage != null;
     final hasAnyImage = hasNetworkImage || hasLocalImage;
 
-    // 🔹 placeholder 텍스트
     final displayRoomName =
         _roomName.isEmpty ? '큐어룸명을 설정해주세요' : _roomName;
     final displayRoomDesc =
@@ -282,66 +406,61 @@ String _stripTags(String text) {
     final plainDesc = _stripTags(rawDesc);
 
     return _SettingsCard(
-    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-    padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '큐어룸 소개',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            color: AppColors.blueTextSecondary,
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 왼쪽: 큐어룸 대표 사진
-            GestureDetector(
-              onTap: _changeRoomImage,
-              child: Column(
-                children: [
-                  CircleAvatar(
-                    radius: 28,
-                    backgroundColor: AppColors.lightGrey,
-                    backgroundImage: hasLocalImage
-                        ? FileImage(_selectedImage!)
-                        : (hasNetworkImage
-                            ? NetworkImage(_roomImageUrl!) as ImageProvider
-                            : null),
-                    child: !hasAnyImage
-                        ? const Icon(
-                            Icons.home_filled,
-                            color: AppColors.grey,
-                            size: 28,
-                          )
-                        : null,
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    '사진 변경',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: AppColors.skyBlue,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '큐어룸 소개',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: AppColors.blueTextSecondary,
             ),
-
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GestureDetector(
+                onTap: _changeRoomImage,
+                child: Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 28,
+                      backgroundColor: AppColors.lightGrey,
+                      backgroundImage: hasLocalImage
+                          ? FileImage(_selectedImage!)
+                          : (hasNetworkImage
+                              ? NetworkImage(_roomImageUrl!)
+                                  as ImageProvider
+                              : null),
+                      child: !hasAnyImage
+                          ? const Icon(
+                              Icons.home_filled,
+                              color: AppColors.grey,
+                              size: 28,
+                            )
+                          : null,
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      '사진 변경',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.skyBlue,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(width: 16),
-
-              // 오른쪽: 이름 + 소개글 + 편집 버튼들
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 큐어룸명 + 편집
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
@@ -359,10 +478,7 @@ String _stripTags(String text) {
                         _buildSmallEditButton(onTap: _editRoomName),
                       ],
                     ),
-
                     const SizedBox(height: 8),
-
-                    // 소개글 + 편집
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -370,7 +486,6 @@ String _stripTags(String text) {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // 1) 태그 뺀 순수 소개글
                               if (plainDesc.isNotEmpty)
                                 Text(
                                   plainDesc,
@@ -379,8 +494,6 @@ String _stripTags(String text) {
                                     color: AppColors.blueTextSecondary,
                                   ),
                                 ),
-
-                              // 2) 태그 칩들
                               if (tags.isNotEmpty) ...[
                                 const SizedBox(height: 6),
                                 Wrap(
@@ -408,7 +521,6 @@ String _stripTags(String text) {
     );
   }
 
-  // 작은 "편집" 버튼
   Widget _buildSmallEditButton({required VoidCallback onTap}) {
     return GestureDetector(
       onTap: onTap,
@@ -431,7 +543,6 @@ String _stripTags(String text) {
     );
   }
 
-  // 이름 편집 다이얼로그
   Future<void> _editRoomName() async {
     final controller = TextEditingController(
       text: _roomName.isEmpty ? '' : _roomName,
@@ -465,23 +576,22 @@ String _stripTags(String text) {
 
     if (result == null) return;
 
-  if (result.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('큐어룸명을 입력해주세요.')),
+    if (result.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('큐어룸명을 입력해주세요.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _roomName = result;
+    });
+
+    await _saveCureRoom(
+      successMessage: '큐어룸명이 설정되었습니다.',
     );
-    return;
   }
 
-  setState(() {
-    _roomName = result;
-  });
-
-  await _saveCureRoom(
-    successMessage: '큐어룸명이 설정되었습니다.',
-  );
-  }
-
-  // 소개글 편집 다이얼로그
   Future<void> _editRoomDescription() async {
     final controller = TextEditingController(
       text: _roomDescription.isEmpty ? '' : _roomDescription,
@@ -523,128 +633,128 @@ String _stripTags(String text) {
       }
 
       setState(() {
-        _roomName = result;
+        _roomDescription = result;
       });
 
       await _saveCureRoom(
-        successMessage: '큐어룸명이 설정되었습니다.',
+        successMessage: '소개글이 설정되었습니다.',
       );
+    }
   }
-  }
+
   // ===================================================================
   // 🔹 팔로워 카드
   // ===================================================================
   Widget _buildFollowerCard() {
-  final c = widget.cureRoom.cure;
-  final roomName =
-      _roomName.isEmpty ? (c.cureNm ?? '큐어룸') : _roomName;
+    final c = widget.cureRoom.cure;
+    final roomName = _roomName.isEmpty ? (c.cureNm) : _roomName;
 
-  return _SettingsCard(
-    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-    child: InkWell(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => CureRoomFollowerListScreen(
-              cureSeq: c.cureSeq,
-              roomName: roomName,
+    return _SettingsCard(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => CureRoomFollowerListScreen(
+                cureSeq: c.cureSeq,
+                roomName: roomName,
+              ),
             ),
-          ),
-        );
-      },
-      borderRadius: BorderRadius.circular(16),
+          );
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: const [
+            Text(
+              '팔로워 목록',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: AppColors.blueTextSecondary,
+              ),
+            ),
+            Icon(Icons.chevron_right, color: AppColors.grey),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ===================================================================
+  // 🔹 공개 여부 설정 카드
+  // ===================================================================
+  Widget _buildPublicToggleCard() {
+    return _SettingsCard(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: const [
-          Text(
-            '팔로워 목록',
+        children: [
+          const Text(
+            '공개여부 설정',
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w600,
               color: AppColors.blueTextSecondary,
             ),
           ),
-          Icon(Icons.chevron_right, color: AppColors.grey),
-        ],
-      ),
-    ),
-  );
-}
+          Switch(
+            value: _isPublic,
+            onChanged: (value) async {
+              final prevValue = _isPublic;
+              final c = widget.cureRoom.cure;
 
-  // ===================================================================
-  // 🔹 공개 여부 설정 카드
-  // ===================================================================
-  Widget _buildPublicToggleCard() {
-  return _SettingsCard(
-    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        const Text(
-          '공개여부 설정',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            color: AppColors.blueTextSecondary,
-          ),
-        ),
-        Switch(
-          value: _isPublic,
-          onChanged: (value) async {
-            // 이전 값 저장 (실패 시 롤백용)
-            final prevValue = _isPublic;
-            final c = widget.cureRoom.cure;
-
-            // UI 먼저 바꿔주고
-            setState(() {
-              _isPublic = value;
-            });
-
-            try {
-              // 🔹 공개 여부 전용 API 호출
-              await _cureRoomService.updateCureRoomRelease(
-                cureSeq: c.cureSeq,
-                isPublic: value,
-              );
-
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    value
-                        ? '큐어룸이 공개로 전환되었습니다.'
-                        : '큐어룸이 비공개로 전환되었습니다.',
-                  ),
-                ),
-              );
-            } catch (e) {
-              if (!mounted) return;
-
-              // 실패 시 UI 롤백
               setState(() {
-                _isPublic = prevValue;
+                _isPublic = value;
               });
 
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('공개 여부 변경 중 오류가 발생했습니다: $e'),
-                ),
-              );
-            }
-          },
-          activeColor: Color(0xFFA0C4FF),
-        ),
-      ],
-    ),
-  );
-}
+              try {
+                await _cureRoomService.updateCureRoomRelease(
+                  cureSeq: c.cureSeq,
+                  isPublic: value,
+                );
+
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      value
+                          ? '큐어룸이 공개로 전환되었습니다.'
+                          : '큐어룸이 비공개로 전환되었습니다.',
+                    ),
+                  ),
+                );
+              } catch (e) {
+                if (!mounted) return;
+
+                setState(() {
+                  _isPublic = prevValue;
+                });
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content:
+                        Text('공개 여부 변경 중 오류가 발생했습니다: $e'),
+                  ),
+                );
+              }
+            },
+            activeColor: const Color(0xFFA0C4FF),
+          ),
+        ],
+      ),
+    );
+  }
 
   // ===================================================================
   // 🔹 멤버 카드
   // ===================================================================
   Widget _buildMemberCard() {
+    final c = widget.cureRoom.cure;
+    final roomName = _roomName.isEmpty ? (c.cureNm) : _roomName;
+
     return _SettingsCard(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
@@ -665,8 +775,20 @@ String _stripTags(String text) {
               ),
               IconButton(
                 icon: const Icon(Icons.settings, size: 20),
-                onPressed: () {
-                  // TODO: 멤버 권한 설정 화면 등
+                onPressed: () async {
+                  final name =
+                      _roomName.isEmpty ? (c.cureNm) : _roomName;
+
+                  // 🔹 멤버관리 화면으로 이동
+                  await GoRouter.of(context).push(
+                    '${RoutePaths.memberManage}'
+                    '?cureSeq=${c.cureSeq}'
+                    '&roomName=${Uri.encodeComponent(name)}',
+                    extra: widget.cureRoom.members, // ← 기존 그대로
+                  );
+
+                  // 🔥 돌아오면 무조건 서버에서 다시 멤버 가져와서 새로고침
+                  await _reloadCureRoomMembers();
                 },
               ),
             ],
@@ -683,7 +805,7 @@ String _stripTags(String text) {
               SizedBox(width: 8),
               _RoleLegendDot(label: '가족', color: Colors.purple),
               SizedBox(width: 8),
-              _RoleLegendDot(label: '일반', color: Colors.yellow),
+              _RoleLegendDot(label: '일반', color: Colors.orange),
             ],
           ),
           const SizedBox(height: 8),
@@ -691,9 +813,8 @@ String _stripTags(String text) {
           // 초대하기
           InkWell(
             onTap: () {
-              // TODO: 초대 화면 / 초대 다이얼로그
+              // TODO: 초대 기능
             },
-            borderRadius: BorderRadius.circular(16),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Row(
@@ -718,7 +839,6 @@ String _stripTags(String text) {
           ),
           const SizedBox(height: 8),
 
-          // 멤버 리스트
           ..._members.map(_buildMemberRow).toList(),
         ],
       ),
@@ -726,6 +846,9 @@ String _stripTags(String text) {
   }
 
   Widget _buildMemberRow(_MemberItem item) {
+    final hasImage =
+        item.imageUrl != null && item.imageUrl!.isNotEmpty;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Row(
@@ -733,18 +856,24 @@ String _stripTags(String text) {
           CircleAvatar(
             radius: 20,
             backgroundColor: AppColors.lightGrey,
-            child: Text(
-              item.name.isNotEmpty ? item.name.substring(0, 1) : '?',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppColors.black,
-              ),
-            ),
+            backgroundImage:
+                hasImage ? NetworkImage(item.imageUrl!) : null,
+            child: !hasImage
+                ? Text(
+                    item.name.isNotEmpty
+                        ? item.name.substring(0, 1)
+                        : '?',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.black,
+                    ),
+                  )
+                : null,
           ),
           const SizedBox(width: 10),
 
-          // 이름 + "나" 뱃지
+          // 이름 + "나" 뱃지 + 방장/부방장 아이콘
           Expanded(
             child: Row(
               children: [
@@ -754,7 +883,7 @@ String _stripTags(String text) {
                         horizontal: 6, vertical: 2),
                     margin: const EdgeInsets.only(right: 4),
                     decoration: BoxDecoration(
-                      color: AppColors.grey,
+                      color: AppColors.skyBlue,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Text(
@@ -768,13 +897,34 @@ String _stripTags(String text) {
                   ),
                 ],
                 Flexible(
-                  child: Text(
-                    item.name,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppColors.blueTextSecondary,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          item.name,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: AppColors.blueTextSecondary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (item.isOwner) ...[
+                        const SizedBox(width: 6),
+                        const Icon(
+                          Icons.stars,
+                          color: Colors.amber,
+                          size: 18,
+                        ),
+                      ] else if (item.isManager) ...[
+                        const SizedBox(width: 6),
+                        Icon(
+                          Icons.workspace_premium,
+                          color: Colors.blue.shade400,
+                          size: 18,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
@@ -816,30 +966,101 @@ String _stripTags(String text) {
     );
   }
 
+  /// 🔹 실제로 서버에 "큐어룸 나가기" 요청 보내는 함수
+  Future<void> _leaveCureRoomOnServer() async {
+    // 1) 현재 로그인한 사용자 custSeq
+    final int? myCustSeq = context.read<AuthViewModel>().custSeq;
+
+    if (myCustSeq == null) {
+      throw Exception('로그인 정보를 찾을 수 없습니다.(custSeq 없음)');
+    }
+
+    // 2) cureRoom.members 중에서 내 멤버 레코드 찾기
+    dynamic myMember;
+    try {
+      myMember = widget.cureRoom.members.firstWhere(
+        (m) => m.custSeq == myCustSeq,
+      );
+    } catch (_) {
+      myMember = null;
+    }
+
+    if (myMember == null) {
+      throw Exception('이 큐어룸에서 본인 멤버 정보를 찾을 수 없습니다.');
+    }
+
+    final int cureMemberSeq = myMember.cureMemberSeq as int;
+
+    // 3) 서비스 호출
+    await _cureRoomService.deleteCureMember(cureMemberSeq);
+  }
+
   Future<void> _confirmLeaveRoom() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('큐어룸 나가기'),
-        content: const Text('정말 이 큐어룸에서 나가시겠어요?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('취소'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('나가기'),
-          ),
-        ],
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('큐어룸 나가기'),
+      content: const Text('정말 이 큐어룸에서 나가시겠어요?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('취소'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('나가기'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true) return;
+
+  try {
+    // 1) 서버에서 내 멤버 삭제
+    await _leaveCureRoomOnServer();
+
+    if (!mounted) return;
+
+    // 2) 큐어모드 해제 + 홈 탭으로 이동
+    final nav = context.read<BottomNavProvider>();
+    nav.clearCurer();       // 👈 큐어룸 선택 해제 (isMainMode로 돌아가게)
+    nav.changeIndex(0);     // 👈 BottomNav 홈 탭으로 맞추기
+
+    // 3) 메인 레이아웃으로 이동
+    context.go(RoutePaths.main);
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('큐어룸 나가기 중 오류가 발생했습니다: $e'),
       ),
     );
-
-    if (confirmed == true) {
-      // TODO: 서버에 큐어룸 나가기 API 호출
-      Navigator.of(context).pop();
-    }
   }
+}
+}
+
+// ------------------------------------------------------
+// 🔹 멤버 표시용 모델
+// ------------------------------------------------------
+class _MemberItem {
+  final String name;
+  final String roleLabel;
+  final Color roleColor;
+  final bool isMe;
+  final bool isOwner;
+  final bool isManager;
+  final String? imageUrl;
+
+  _MemberItem({
+    required this.name,
+    required this.roleLabel,
+    required this.roleColor,
+    this.isMe = false,
+    this.isOwner = false,
+    this.isManager = false,
+    this.imageUrl,
+  });
 }
 
 // ------------------------------------------------------
@@ -914,21 +1135,6 @@ class _RoleLegendDot extends StatelessWidget {
   }
 }
 
-// 멤버 표시용 모델
-class _MemberItem {
-  final String name;
-  final String roleLabel;
-  final Color roleColor;
-  final bool isMe;
-
-  _MemberItem({
-    required this.name,
-    required this.roleLabel,
-    required this.roleColor,
-    this.isMe = false,
-  });
-}
-
 class _TagChip extends StatelessWidget {
   final String label;
 
@@ -948,9 +1154,9 @@ class _TagChip extends StatelessWidget {
       child: Text(
         label,
         style: const TextStyle(
-          fontSize: 12,                // 일반 소개글보다 살짝 작게
-          fontWeight: FontWeight.w600, // 조금 볼드하게
-          color: AppColors.skyBlue,    // 색상 강조
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: AppColors.skyBlue,
         ),
       ),
     );

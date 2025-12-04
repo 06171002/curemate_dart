@@ -185,60 +185,60 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
   }
 
   /// 성별 코드 → 한글
- String _genderLabel(String? code) {
-  switch (code) {
-    case 'female':
-    case 'F':
-    case 'woman': 
-      return '여성';
-    case 'male':
-    case 'M':
-    case 'man':  
-      return '남성';
-    default:
-      return '성별 미등록';
+  String _genderLabel(String? code) {
+    switch (code) {
+      case 'female':
+      case 'F':
+      case 'woman':
+        return '여성';
+      case 'male':
+      case 'M':
+      case 'man':
+        return '남성';
+      default:
+        return '성별 미등록';
+    }
   }
-}
 
   // 큐어룸 단건 조회 API 호출
   Future<void> _loadCureRoom() async {
-  setState(() {
-    _isLoading = true;
-    _errorMessage = null;
-  });
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
-  try {
-    final nav = Provider.of<BottomNavProvider>(context, listen: false);
-    final int? cureSeq = nav.cureSeq;
+    try {
+      final nav = Provider.of<BottomNavProvider>(context, listen: false);
+      final int? cureSeq = nav.cureSeq;
 
-    if (cureSeq == null) {
+      if (cureSeq == null) {
+        setState(() {
+          _errorMessage = '선택된 큐어룸이 없습니다.\n(하단 네비에서 큐어룸을 먼저 선택해주세요)';
+          _isLoading = false;
+          _lastLoadedCureSeq = null;
+        });
+        return;
+      }
+
+      final CureRoomDetailModel detail =
+      await _cureRoomService.getCureRoom(cureSeq);
+
+      final CurePatientModel? firstPatient =
+      detail.patients.isNotEmpty ? detail.patients.first : null;
+
       setState(() {
-        _errorMessage = '선택된 큐어룸이 없습니다.\n(하단 네비에서 큐어룸을 먼저 선택해주세요)';
+        _cureRoomDetail = detail;
+        _patient = firstPatient;
         _isLoading = false;
-        _lastLoadedCureSeq = null;
+        _lastLoadedCureSeq = cureSeq; // ✅ 지금 로드한 큐어룸 번호 기억
       });
-      return;
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+      });
     }
-
-    final CureRoomDetailModel detail =
-        await _cureRoomService.getCureRoom(cureSeq);
-
-    final CurePatientModel? firstPatient =
-        detail.patients.isNotEmpty ? detail.patients.first : null;
-
-    setState(() {
-      _cureRoomDetail = detail;
-      _patient = firstPatient;
-      _isLoading = false;
-      _lastLoadedCureSeq = cureSeq; // ✅ 지금 로드한 큐어룸 번호 기억
-    });
-  } catch (e) {
-    setState(() {
-      _errorMessage = e.toString();
-      _isLoading = false;
-    });
   }
-}
 
   // -----------------------------
   // ✅ 화면 빌드
@@ -276,35 +276,35 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
     final String cureNm =
         _cureRoomDetail?.cure.cureNm ?? nav.cureName ?? '큐어룸명';
 
-   final bool hasPatient = _patient != null;
-   final bool hasSchedule = hasPatient && scheduleItems.isNotEmpty;
+    final bool hasPatient = _patient != null;
+    final bool hasSchedule = hasPatient && scheduleItems.isNotEmpty;
 
-     return LayoutBuilder(
-    builder: (context, constraints) {
-      return Container(
-        width: constraints.maxWidth,
-        height: constraints.maxHeight, // ✅ 헤더~네비 사이 전체를 꽉 채움
-        color: AppColors.lightBackground,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              hasPatient && _patient != null
-                  ? _buildPatientInfoCard(_patient!)
-                  : _buildEmptyPatientCard(),
-              hasSchedule
-                  ? _buildScheduleSectionWithItems()
-                  : _buildEmptyScheduleSection(),
-              _buildQuickActionButtons(),
-              const SizedBox(height: 16),
-            ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Container(
+          width: constraints.maxWidth,
+          height: constraints.maxHeight, // ✅ 헤더~네비 사이 전체를 꽉 채움
+          color: AppColors.lightBackground,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                hasPatient && _patient != null
+                    ? _buildPatientInfoCard(_patient!)
+                    : _buildEmptyPatientCard(),
+                hasSchedule
+                    ? _buildScheduleSectionWithItems()
+                    : _buildEmptyScheduleSection(),
+                _buildQuickActionButtons(),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
-        ),
-      );
-    },
-  );
-}
-  
+        );
+      },
+    );
+  }
+
 
   // -----------------------------
   // ✅ 환자 카드들
@@ -312,233 +312,233 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
 
   /// 환자 있음 버전
   Widget _buildPatientInfoCard(CurePatientModel patient) {
-  final name = patient.patientNm;
-  final age = _calculateAge(patient.patientBirthday);
-  final gender = _genderLabel(patient.patientGenderCmcd);
-  final allergy = ''; // TODO: 나중에 알레르기 정보 생기면 연결
+    final name = patient.patientNm;
+    final age = _calculateAge(patient.patientBirthday);
+    final gender = _genderLabel(patient.patientGenderCmcd);
+    final allergy = ''; // TODO: 나중에 알레르기 정보 생기면 연결
 
-  // 🔹 프로필 이미지: 환자 프로필 > (없으면 큐어룸 이미지 > 없으면 null)
-  final profileImgUrl =
-      patient.profileImgUrl ?? _cureRoomDetail?.cure.profileImgUrl;
+    // 🔹 프로필 이미지: 환자 프로필 > (없으면 큐어룸 이미지 > 없으면 null)
+    final profileImgUrl =
+        patient.profileImgUrl ?? _cureRoomDetail?.cure.profileImgUrl;
 
 
 
-  return Container(
-    margin: const EdgeInsets.fromLTRB(16, 40, 16, 16),
-    padding: const EdgeInsets.all(20),
-    decoration: BoxDecoration(
-      color: AppColors.white,
-      borderRadius: BorderRadius.circular(16),
-      boxShadow: [
-        BoxShadow(
-          color: AppColors.grey.withOpacity(0.1),
-          spreadRadius: 1,
-          blurRadius: 5,
-          offset: const Offset(0, 3),
-        ),
-      ],
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 🔹 프로필 영역 (아이콘 + 텍스트)
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center, // ✅ 세로 중앙 정렬
-          children: [
-            // 왼쪽: 동그란 프로필 (MoreTab 프로필 카드 느낌)
-            CustomProfileAvatar(
-  key: ValueKey(profileImgUrl),  // ↔ 이미지 URL 바뀌면 강제로 다시 그림
-  imageUrl: profileImgUrl,
-  radius: 36,                    // 36 * 2 = 72 (예전과 같음)
-  fallbackIcon: Icons.person,
-),
-            const SizedBox(width: 16),
-
-            // 오른쪽: 텍스트 정보
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 🔽 맨 위 여백 제거해서 중앙 정렬 느낌 더 맞춤
-                  const Text(
-                    '환자 정보',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppColors.darkBlue,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.black,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    "${age != null ? '$age세' : '나이 미등록'}, $gender${allergy.isNotEmpty ? ', $allergy' : ''}",
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.darkBlue,
-                    ),
-                  ),
-                ],
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 40, 16, 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 🔹 프로필 영역 (아이콘 + 텍스트)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center, // ✅ 세로 중앙 정렬
+            children: [
+              // 왼쪽: 동그란 프로필 (MoreTab 프로필 카드 느낌)
+              CustomProfileAvatar(
+                key: ValueKey(profileImgUrl),  // ↔ 이미지 URL 바뀌면 강제로 다시 그림
+                imageUrl: profileImgUrl,
+                radius: 36,                    // 36 * 2 = 72 (예전과 같음)
+                fallbackIcon: Icons.person,
               ),
-            ),
-          ],
-        ),
+              const SizedBox(width: 16),
 
-        const SizedBox(height: 20),
-
-        // 🔹 하단: 전체 폭 버튼 (MoreTab의 "내 정보 수정" 버튼 느낌)
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-                onPressed: () async {
-                  // 프로필 화면 갔다가
-                  final bool? result = await context.push<bool>(
-                    RoutePaths.cureRoomPatientProfile,
-                    extra: {
-                      'patient': patient,
-                      'profileImgUrl': profileImgUrl,
-                    },
-                  );
-
-                  // ✅ 수정/삭제가 일어난 경우에만 리로드
-                  if (result == true) {
-                    _loadCureRoom();
-                  }
-                },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFA0C4FF), // 큐어룸 톤 유지
-              foregroundColor: Colors.white,
-              elevation: 0,
-              minimumSize: const Size.fromHeight(48),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+              // 오른쪽: 텍스트 정보
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 🔽 맨 위 여백 제거해서 중앙 정렬 느낌 더 맞춤
+                    const Text(
+                      '환자 정보',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppColors.darkBlue,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "${age != null ? '$age세' : '나이 미등록'}, $gender${allergy.isNotEmpty ? ', $allergy' : ''}",
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.darkBlue,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-            child: const Text(
-              '프로필 보기',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // 🔹 하단: 전체 폭 버튼 (MoreTab의 "내 정보 수정" 버튼 느낌)
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () async {
+                // 프로필 화면 갔다가
+                final bool? result = await context.push<bool>(
+                  RoutePaths.cureRoomPatientProfile,
+                  extra: {
+                    'patient': patient,
+                    'profileImgUrl': profileImgUrl,
+                  },
+                );
+
+                // ✅ 수정/삭제가 일어난 경우에만 리로드
+                if (result == true) {
+                  _loadCureRoom();
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFA0C4FF), // 큐어룸 톤 유지
+                foregroundColor: Colors.white,
+                elevation: 0,
+                minimumSize: const Size.fromHeight(48),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: const Text(
+                '프로필 보기',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
-         ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
   /// 환자 없음 기본 카드
   /// 환자 없음 기본 카드 (환자 카드와 거의 동일 레이아웃)
   Widget _buildEmptyPatientCard() {
-  return Container(
-    margin: const EdgeInsets.fromLTRB(16, 40, 16, 16),
-    padding: const EdgeInsets.all(20),
-    decoration: BoxDecoration(
-      color: AppColors.white,
-      borderRadius: BorderRadius.circular(16),
-      boxShadow: [
-        BoxShadow(
-          color: AppColors.grey.withOpacity(0.1),
-          spreadRadius: 1,
-          blurRadius: 5,
-          offset: const Offset(0, 3),
-        ),
-      ],
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 🔹 프로필 + 텍스트 영역 (환자 카드와 동일 레이아웃)
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // 왼쪽: 동그란 기본 프로필 아이콘
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.lightGrey,
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 40, 16, 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 🔹 프로필 + 텍스트 영역 (환자 카드와 동일 레이아웃)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // 왼쪽: 동그란 기본 프로필 아이콘
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.lightGrey,
+                ),
+                child: Icon(
+                  Icons.person,
+                  size: 42,
+                  color: AppColors.grey,
+                ),
               ),
-              child: Icon(
-                Icons.person,
-                size: 42,
-                color: AppColors.grey,
-              ),
-            ),
-            const SizedBox(width: 16),
+              const SizedBox(width: 16),
 
-            // 오른쪽: 텍스트 영역
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    '환자 정보',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppColors.darkBlue,
+              // 오른쪽: 텍스트 영역
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      '환자 정보',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppColors.darkBlue,
+                      ),
                     ),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    '등록된 환자가 없습니다.',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.black,
+                    SizedBox(height: 4),
+                    Text(
+                      '등록된 환자가 없습니다.',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.black,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
 
-        const SizedBox(height: 20),
+          const SizedBox(height: 20),
 
-        // 🔹 전체 폭 버튼 (위 환자카드의 "프로필 보기"랑 스타일 맞춤)
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: () async {
-              final result = await context.push(RoutePaths.cureRoomAddPatient);
+          // 🔹 전체 폭 버튼 (위 환자카드의 "프로필 보기"랑 스타일 맞춤)
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () async {
+                final result = await context.push(RoutePaths.cureRoomAddPatient);
 
-              // AddPatientScreen에서 성공 시 true를 넘겨주면 여기에서만 리로드
-              if (result == true) {
-                _loadCureRoom();
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFA0C4FF),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              minimumSize: const Size.fromHeight(48),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                // AddPatientScreen에서 성공 시 true를 넘겨주면 여기에서만 리로드
+                if (result == true) {
+                  _loadCureRoom();
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFA0C4FF),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                minimumSize: const Size.fromHeight(48),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 12),
               ),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-            child: const Text(
-              '환자 등록',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
+              child: const Text(
+                '환자 등록',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
   // -----------------------------
   // ✅ 일정 카드들
@@ -547,7 +547,7 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
   /// 일정 있음 버전
   Widget _buildScheduleSectionWithItems() {
     final itemsToShow =
-        _showAllSchedules ? scheduleItems : scheduleItems.take(3).toList();
+    _showAllSchedules ? scheduleItems : scheduleItems.take(3).toList();
 
     return Container(
       margin: const EdgeInsets.all(16),
@@ -596,7 +596,7 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
               item['title'] as String,
               item['time'] as String,
               item['isDone'] as bool,
-              (bool newValue) {
+                  (bool newValue) {
                 setState(() {
                   scheduleItems[index]['isDone'] = newValue;
                 });
@@ -688,11 +688,11 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
   }
 
   Widget _buildScheduleItem(
-    String title,
-    String time,
-    bool isDone,
-    ValueChanged<bool> onToggle,
-  ) {
+      String title,
+      String time,
+      bool isDone,
+      ValueChanged<bool> onToggle,
+      ) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
@@ -760,16 +760,16 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
           _buildQuickActionButton(
             Icons.medical_services,
             '진료 목록',
-            () {
+                () {
               // ✅ go_router로 진료 목록 이동
-             // context.push(RoutePaths.cureRoomRecordingList);
+              // context.push(RoutePaths.cureRoomRecordingList);
             },
             iconColor: AppColors.pinkIconColor,
           ),
           _buildQuickActionButton(
             Icons.book,
             '뿌듯 일지',
-            () {
+                () {
               // ✅ go_router로 뿌듯일지 이동
               //context.push(RoutePaths.cureRoomProudDiary);
             },
@@ -778,7 +778,7 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
           _buildQuickActionButton(
             Icons.assignment,
             '증상 일지',
-            () {
+                () {
               // ✅ go_router로 증상일지 이동
               //context.push(RoutePaths.cureRoomMedicalHistory);
             },
@@ -790,11 +790,11 @@ class _CureRoomHomeViewState extends State<CureRoomHomeView> {
   }
 
   Widget _buildQuickActionButton(
-    IconData icon,
-    String text,
-    VoidCallback onPressed, {
-    Color iconColor = const Color.fromARGB(255, 136, 126, 201),
-  }) {
+      IconData icon,
+      String text,
+      VoidCallback onPressed, {
+        Color iconColor = const Color.fromARGB(255, 136, 126, 201),
+      }) {
     return Expanded(
       child: InkWell(
         onTap: onPressed,

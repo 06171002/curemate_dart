@@ -3,6 +3,7 @@
 import 'curer_model.dart';
 import 'package:curemate/config/EnvConfig.dart';
 
+
 class CurePatientModel {
   final int curePatientSeq;
   final int cureSeq;
@@ -106,40 +107,124 @@ class CureMemberModel {
   final int cureMemberSeq;
   final int cureSeq;
   final int custSeq;
+
+  /// 권한 code: master / manager / user ...
   final String cureMemberGradeCmcd;
+
+  /// 권한 이름: 방장 / 관리자 / 일반사용자 ...
+  final String cureMemberGradeCmnm;
+
+  /// 타입 code: guardian / caregiver / family / user ...
   final String cureMemberTypeCmcd;
+
+  /// 타입 이름: 보호자 / 간병인 / 가족 / 일반 ...
+  final String cureMemberTypeCmnm;
+
   final String exileYn;
-  final String regId;
-  final String regDttm;
-  final String updId;
-  final String updDttm;
+
+  /// 서버에서 내려오는 memberProfile 그대로 저장
+  final Map<String, dynamic>? memberProfile;
+
+  final String custNm;
+  final String custNickname;
+  final int custMediaGroupSeq;
+  final String withdrawYn;
+  final String? withdrawDttm;
 
   CureMemberModel({
     required this.cureMemberSeq,
     required this.cureSeq,
     required this.custSeq,
     required this.cureMemberGradeCmcd,
+    required this.cureMemberGradeCmnm,
     required this.cureMemberTypeCmcd,
+    required this.cureMemberTypeCmnm,
     required this.exileYn,
-    required this.regId,
-    required this.regDttm,
-    required this.updId,
-    required this.updDttm,
+    required this.memberProfile,
+    required this.custNm,
+    required this.custNickname,
+    required this.custMediaGroupSeq,
+    required this.withdrawYn,
+    this.withdrawDttm,
   });
 
   factory CureMemberModel.fromJson(Map<String, dynamic> json) {
+    // 🔹 혹시 snake_case로 내려와도 대응 (안 쓰면 제거해도 됨)
+    String getStr(List<String> keys, {String defaultValue = ''}) {
+      for (final k in keys) {
+        final v = json[k];
+        if (v != null) return v.toString();
+      }
+      return defaultValue;
+    }
+
+    int getInt(List<String> keys, {int defaultValue = 0}) {
+      for (final k in keys) {
+        final v = json[k];
+        if (v is int) return v;
+        if (v is String && v.isNotEmpty) {
+          final parsed = int.tryParse(v);
+          if (parsed != null) return parsed;
+        }
+      }
+      return defaultValue;
+    }
+
+    Map<String, dynamic>? profileMap;
+    if (json['memberProfile'] != null && json['memberProfile'] is Map) {
+      profileMap = Map<String, dynamic>.from(json['memberProfile']);
+    }
+
     return CureMemberModel(
-      cureMemberSeq: json['cureMemberSeq'] ?? 0,
-      cureSeq: json['cureSeq'] ?? 0,
-      custSeq: json['custSeq'] ?? 0,
-      cureMemberGradeCmcd: json['cureMemberGradeCmcd'] ?? '',
-      cureMemberTypeCmcd: json['cureMemberTypeCmcd'] ?? '',
-      exileYn: json['exileYn'] ?? 'N',
-      regId: json['regId'] ?? '',
-      regDttm: json['regDttm'] ?? '',
-      updId: json['updId'] ?? '',
-      updDttm: json['updDttm'] ?? '',
+      cureMemberSeq: getInt(['cureMemberSeq', 'cure_member_seq']),
+      cureSeq: getInt(['cureSeq', 'cure_seq']),
+      custSeq: getInt(['custSeq', 'cust_seq']),
+      cureMemberGradeCmcd:
+          getStr(['cureMemberGradeCmcd', 'cure_member_grade_cmcd']),
+      cureMemberGradeCmnm:
+          getStr(['cureMemberGradeCmnm', 'cure_member_grade_cmnm']),
+      cureMemberTypeCmcd:
+          getStr(['cureMemberTypeCmcd', 'cure_member_type_cmcd']),
+      cureMemberTypeCmnm:
+          getStr(['cureMemberTypeCmnm', 'cure_member_type_cmnm']),
+      exileYn: getStr(['exileYn', 'exile_yn'], defaultValue: 'N'),
+      memberProfile: profileMap,
+      custNm: getStr(['custNm', 'cust_nm']),
+      custNickname: getStr(['custNickname', 'cust_nickname']),
+      custMediaGroupSeq:
+          getInt(['custMediaGroupSeq', 'cust_media_group_seq']),
+      withdrawYn: getStr(['withdrawYn', 'withdraw_yn'], defaultValue: 'N'),
+      withdrawDttm: json['withdrawDttm'] ?? json['withdraw_dttm'],
     );
+  }
+
+  /// 닉네임 > 이름 우선 표시
+  String get displayName =>
+      (custNickname.isNotEmpty ? custNickname : custNm);
+
+  /// 추방 여부
+  bool get isExiled => exileYn == 'Y';
+
+  /// 🔹 CurerModel과 동일한 규칙으로 프로필 이미지 URL 만들기
+  String? get profileImgUrl {
+    final profile = memberProfile;
+    if (profile == null) return null;
+
+    final list = profile['detailList'];
+    if (list is! List || list.isEmpty) return null;
+
+    final first = list.first as Map<String, dynamic>;
+
+    // ✅ 우선 순위: detail > thumb > main
+    final String? detail = first['mediaDetailUrl'];
+    final String? thumb = first['mediaThumbUrl'];
+    final String? main = first['mediaUrl'];
+
+    final String? path = detail ?? thumb ?? main;
+    if (path == null || path.isEmpty) return null;
+
+    if (path.startsWith('http')) return path;
+    return '${EnvConfig.BASE_URL}$path';
   }
 }
 

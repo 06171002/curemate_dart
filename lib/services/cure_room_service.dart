@@ -389,4 +389,68 @@ Future<void> deleteCurePatient(int curePatientSeq) async {
       .toList();
 }
 
+//큐어룸 멤버 수정
+Future<CureMemberModel> mergeCureMember({
+    required int cureMemberSeq,
+    required String gradeCode, // cureMemberGradeCmcd
+    required String typeCode,  // cureMemberTypeCmcd
+    required bool exile,
+  }) async {
+    final Response res = await _apiService.post(
+      '/rest/cure/mergeCureMember',
+      data: {
+        'param': {
+          'cureMemberSeq': cureMemberSeq,
+          'cureMemberGradeCmcd': gradeCode,
+          'cureMemberTypeCmcd': typeCode,
+          'exileYn': exile ? 'Y' : 'N',
+        },
+      },
+    );
+
+    final data = res.data['data'] as Map<String, dynamic>;
+    return CureMemberModel.fromJson(data);
+  }
+
+/// 🗑 큐어룸 멤버 삭제 (큐어룸 나가기)
+Future<void> deleteCureMember(int cureMemberSeq) async {
+  final Response res = await _apiService.post(
+    '/rest/cure/deleteCureMember',
+    data: {
+      'param': {
+        'cureMemberSeq': cureMemberSeq,
+      },
+    },
+  );
+
+  // 응답: { code: "200", message, detail, param, map, data:null }
+  if (res.data is Map && res.data['code']?.toString() != '200') {
+    throw Exception(
+      '큐어룸 나가기 실패: ${res.data['detail'] ?? res.data['message'] ?? '알 수 없는 오류'}',
+    );
+  }
 }
+/// 🔹 큐어룸 멤버 추방 전용 API
+Future<void> updateCureMemberExile(int cureMemberSeq) async {
+  final Response res = await _apiService.post(
+    '/rest/cure/updateCureMemberExile',
+    data: {
+      'param': {
+        'cureMemberSeq': cureMemberSeq,
+      },
+    },
+  );
+
+  // 이 API는 code 404 + detail "성공" 이런 식으로도 올 수 있어서
+  // detail 기준으로 성공 판단
+  if (res.data is Map &&
+      res.data['detail']?.toString() != '성공') {
+    throw Exception(
+      '멤버 추방 실패: ${res.data['detail'] ?? res.data['message'] ?? '알 수 없는 오류'}',
+    );
+  }
+}
+
+}
+
+

@@ -90,7 +90,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
             label: navProvider.isCureMode ? '큐어룸' : '홈',
           ),
           const BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: '캘린더'),
-          const BottomNavigationBarItem(icon: Icon(Icons.edit_note), label: '증상일지'),
+          const BottomNavigationBarItem(icon: Icon(Icons.edit_note), label: '간병일지'),
           const BottomNavigationBarItem(icon: Icon(Icons.book), label: '뿌듯일지'),
           const BottomNavigationBarItem(icon: Icon(Icons.more_horiz), label: '더보기'),
         ],

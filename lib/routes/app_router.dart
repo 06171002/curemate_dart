@@ -26,10 +26,13 @@ import 'route_paths.dart';
 import 'package:curemate/features/cure_room/view/patient_profile_screen.dart';
 import 'package:curemate/features/cure_room/view/medical_history_screen.dart';
 import 'package:curemate/features/cure_room/view/medical_detail_screen.dart';
+import 'package:curemate/features/cure_room/view/edit_member_screen.dart';
 import 'package:curemate/features/cure_room/view/medication_list_screen.dart';
 import 'package:curemate/features/cure_room/view/medication_detail_screen.dart';
 import 'package:curemate/features/cure_room/view/add_patient_screen.dart';
 import 'package:curemate/features/cure_room/model/cure_room_models.dart';
+import 'package:curemate/features/cure_room/view/edit_member_screen.dart';
+
 
 
 class AppRouter {
@@ -234,26 +237,26 @@ class AppRouter {
 
         // 프로필 (환자 정보 카드에서 들어가는 화면)
         GoRoute(
-  path: RoutePaths.cureRoomPatientProfile,
-  name: 'cure_room_patient_profile',
-  builder: (context, state) {
-    final extra = state.extra as Map<String, dynamic>?;
+          path: RoutePaths.cureRoomPatientProfile,
+          name: 'cure_room_patient_profile',
+          builder: (context, state) {
+            final extra = state.extra as Map<String, dynamic>?;
 
-    if (extra == null || extra['patient'] == null) {
-      return const Scaffold(
-        body: Center(child: Text('환자 정보가 없습니다.')),
-      );
-    }
+            if (extra == null || extra['patient'] == null) {
+              return const Scaffold(
+                body: Center(child: Text('환자 정보가 없습니다.')),
+              );
+            }
 
-    final patient = extra['patient'] as CurePatientModel;
-    final profileImgUrl = extra['profileImgUrl'] as String?;
+            final patient = extra['patient'] as CurePatientModel;
+            final profileImgUrl = extra['profileImgUrl'] as String?;
 
-    return PatientProfileScreen(
-      patient: patient,
-      profileImgUrl: profileImgUrl,
-    );
-  },
-),
+            return PatientProfileScreen(
+              patient: patient,
+              profileImgUrl: profileImgUrl,
+            );
+          },
+        ),
         GoRoute(
           path: RoutePaths.addCureRoom,
           name: 'add_cure_room',
@@ -367,8 +370,24 @@ class AppRouter {
           return CureRoomSettingsScreen(cureRoom: detail);
         },
       ),
+       GoRoute(
+          path: RoutePaths.memberManage,
+          name: 'cure_room_member_manage',
+          builder: (context, state) {
+            final cureSeq =
+                int.tryParse(state.uri.queryParameters['cureSeq'] ?? '') ?? 0;
+            final roomName = state.uri.queryParameters['roomName'] ?? '';
+            final members =
+                state.extra as List<CureMemberModel>? ?? [];
 
-      ],
+            return CureRoomMemberManageScreen(
+              cureSeq: cureSeq,
+              roomName: roomName,
+              members: members, // 🔥 여기 이름 중요!
+            );
+          },
+        ),
+      ], 
         // ===============================
         //  CureRoom 관련 라우트들 끝
         // ===============================
