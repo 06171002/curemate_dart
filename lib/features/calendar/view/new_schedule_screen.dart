@@ -455,6 +455,7 @@ class _NewScheduleScreenState extends State<NewScheduleScreen> {
 
         'cureScheduleRepeatYn': _repeatOption == '반복 없음' ? 'N' : 'Y',
         'cureScheduleRepeat': repeatCycle,
+        'repeatOption': _repeatOption,
 
         // 계산된 요일 플래그
         'cureScheduleMonYn': monYn,

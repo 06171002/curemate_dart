@@ -45,7 +45,20 @@ class CalendarService {
           "cureScheduleEndDttm": endDttm,
           "cureScheduleDayYn": inputData['isAllDay'] ? "Y" : "N",
           "cureScheduleRepeatYn": repeatYn,
-          "cureScheduleTypeCmcd": scheduleRepeatCode
+          "cureScheduleTypeCmcd": scheduleRepeatCode,
+          // ✅ [추가] 누락되었던 반복 상세 정보들을 여기에 추가해야 합니다!
+          "cureScheduleRepeat": inputData['cureScheduleRepeat'] ?? 0,
+
+          "cureScheduleMonYn": inputData['cureScheduleMonYn'] ?? 'N',
+          "cureScheduleTuesYn": inputData['cureScheduleTuesYn'] ?? 'N',
+          "cureScheduleWednesYn": inputData['cureScheduleWednesYn'] ?? 'N',
+          "cureScheduleThursYn": inputData['cureScheduleThursYn'] ?? 'N',
+          "cureScheduleFriYn": inputData['cureScheduleFriYn'] ?? 'N',
+          "cureScheduleSaturYn": inputData['cureScheduleSaturYn'] ?? 'N',
+          "cureScheduleSunYn": inputData['cureScheduleSunYn'] ?? 'N',
+
+          "cureScheduleStopYn": inputData['cureScheduleStopYn'] ?? 'N',
+          "cureScheduleStopDttm": inputData['cureScheduleStopDttm'],
         },
 
         // 알람 정보
