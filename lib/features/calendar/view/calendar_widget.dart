@@ -27,6 +27,7 @@ class CalendarWidget extends StatelessWidget {
       curve: Curves.easeOut,
       color: Colors.white, // 배경색
       child: TableCalendar(
+        shouldFillViewport: true,
         firstDay: DateTime(2000),
         lastDay: DateTime(2100),
         focusedDay: focusedDay,
